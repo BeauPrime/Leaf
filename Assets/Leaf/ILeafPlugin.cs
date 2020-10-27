@@ -1,0 +1,28 @@
+/*
+ * Copyright (C) 2020. Autumn Beauchesne. All rights reserved.
+ * Author:  Autumn Beauchesne
+ * Date:    24 Oct 2020
+ * 
+ * File:    ILeafPlugin.cs
+ * Purpose: Plugin for operating leaf nodes.
+ */
+
+using System.Collections;
+using BeauUtil;
+using Leaf.Runtime;
+
+namespace Leaf
+{
+    public interface ILeafPlugin<TNode>
+        where TNode : LeafNode
+    {
+        void OnNodeEnter(TNode inNode, LeafThreadState<TNode> inThreadState);
+        void OnNodeExit(TNode inNode, LeafThreadState<TNode> inThreadState);
+
+        bool TryLookupLine(StringHash32 inLineCode, TNode inLocalNode, out string outLine);
+        bool TryLookupNode(StringHash32 inNodeId, TNode inLocalNode, out TNode outNode);
+
+        IEnumerator RunLine(LeafThreadState<TNode> inThreadState, StringSlice inLine, ILeafContentResolver inContentResolver);
+        IEnumerator ShowOptions(LeafThreadState<TNode> inThreadState, LeafChoice inChoice, ILeafContentResolver inContentResolver);
+    }
+}
