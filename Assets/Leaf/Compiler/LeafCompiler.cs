@@ -63,53 +63,109 @@ namespace Leaf.Compiler
             private readonly List<int> m_EndPointers = new List<int>(4);
 
             /// <summary>
-            /// Advances the block and points the next pointer to the current instruction.
+            /// Handles an if statement.
             /// </summary>
-            public void Advance(int inCurrent, List<LeafInstruction> ioInstructions)
+            public void If(BlockFilePosition inPosition, StringSlice inExpression, LeafCompiler<TNode> ioCompiler)
             {
-                LeafInstruction inst = ioInstructions[m_NextPointer];
-                int jump = inCurrent - m_NextPointer;
-                inst.SetArg(jump);
-                ioInstructions[m_NextPointer] = inst;
-                m_NextPointer = -1;
+                if (m_Phase != Phase.Unstarted)
+                    throw new SyntaxException(inPosition, "If statement in an unexpected location");
+                
+                m_Phase = Phase.Started;
+                
+                EmitExpressionCheck(inExpression, ioCompiler);
             }
 
             /// <summary>
-            /// Sets the given instruction to point to the next block.
+            /// Handles an elseif statement
             /// </summary>
-            public void PointToNext(int inIndex)
+            public void ElseIf(BlockFilePosition inPosition, StringSlice inExpression, LeafCompiler<TNode> ioCompiler)
             {
-                m_NextPointer = inIndex;
-            }
-
-            /// <summary>
-            /// Sets the given instruction to point to the end of the block.
-            /// </summary>
-            public void PointToEnd(int inIndex)
-            {
-                m_EndPointers.Add(inIndex);
-            }
-
-            /// <summary>
-            /// Ends the block.
-            /// </summary>
-            public void End(int inIndex, List<LeafInstruction> ioInstructions)
-            {
-                if (m_NextPointer != -1)
+                switch(m_Phase)
                 {
-                    Advance(inIndex, ioInstructions);
+                    case Phase.Unstarted:
+                        throw new SyntaxException(inPosition, "ElseIf without corresponding initial if statement");
+                    case Phase.FinalElse:
+                        throw new SyntaxException(inPosition, "ElseIf cannot come after a final Else statement");
+                    case Phase.Started:
+                        m_Phase = Phase.Continued;
+                        break;
                 }
+
+                PointToEnd(ioCompiler);
+                Advance(ioCompiler);
+                EmitExpressionCheck(inExpression, ioCompiler);
+            }
+
+            /// <summary>
+            /// Handles an else statement
+            /// </summary>
+            public void Else(BlockFilePosition inPosition, LeafCompiler<TNode> ioCompiler)
+            {
+                switch(m_Phase)
+                {
+                    case Phase.Unstarted:
+                        throw new SyntaxException(inPosition, "Else without corresponding initial if statement");
+                    case Phase.FinalElse:
+                        throw new SyntaxException(inPosition, "Else cannot come after a final Else statement");
+                    case Phase.Started:
+                    case Phase.Continued:
+                        m_Phase = Phase.FinalElse;
+                        break;
+                }
+
+                PointToEnd(ioCompiler);
+                Advance(ioCompiler);
+            }
+
+            /// <summary>
+            /// Handles an endif statement
+            /// </summary>
+            public void EndIf(BlockFilePosition inPosition, LeafCompiler<TNode> ioCompiler)
+            {
+                switch(m_Phase)
+                {
+                    case Phase.Unstarted:
+                        throw new SyntaxException(inPosition, "EndIf without corresponding initial if statement");
+                }
+
+                m_Phase = Phase.Unstarted;
+                Advance(ioCompiler);
 
                 for(int i = m_EndPointers.Count - 1; i >= 0; --i)
                 {
                     int idx = m_EndPointers[i];
-                    LeafInstruction inst = ioInstructions[idx];
-                    int jump = inIndex - idx;
+                    LeafInstruction inst = ioCompiler.m_EmittedInstructions[idx];
+                    int jump = ioCompiler.InstructionCount - idx;
                     inst.SetArg(jump);
-                    ioInstructions[idx] = inst;
+                    ioCompiler.m_EmittedInstructions[idx] = inst;
                 }
 
                 m_EndPointers.Clear();
+            }
+
+            private void EmitExpressionCheck(StringSlice inExpression, LeafCompiler<TNode> ioCompiler)
+            {
+                ioCompiler.EmitExpressionCall(inExpression);
+                ioCompiler.EmitInstruction(LeafOpcode.JumpIfFalse, -1);
+                m_NextPointer = ioCompiler.InstructionCount - 1;
+            }
+
+            private void Advance(LeafCompiler<TNode> ioCompiler)
+            {
+                if (m_NextPointer >= 0)
+                {
+                    LeafInstruction inst = ioCompiler.m_EmittedInstructions[m_NextPointer];
+                    int jump = ioCompiler.InstructionCount - m_NextPointer;
+                    inst.SetArg(jump);
+                    ioCompiler.m_EmittedInstructions[m_NextPointer] = inst;
+                    m_NextPointer = -1;
+                }
+            }
+
+            private void PointToEnd(LeafCompiler<TNode> ioCompiler)
+            {
+                ioCompiler.EmitInstruction(LeafOpcode.Jump, -1);
+                m_EndPointers.Add(ioCompiler.InstructionCount - 1);
             }
 
             /// <summary>
@@ -119,6 +175,7 @@ namespace Leaf.Compiler
             {
                 m_NextPointer = -1;
                 m_EndPointers.Clear();
+                m_Phase = Phase.Unstarted;
             }
         }
 
@@ -135,8 +192,9 @@ namespace Leaf.Compiler
         private readonly List<ILeafExpression<TNode>> m_EmittedExpressions = new List<ILeafExpression<TNode>>(32);
         private readonly StringBuilder m_TempStringBuilder = new StringBuilder(32);
 
-        private readonly ConditionalBlockLinker[] m_LinkerStack = new ConditionalBlockLinker[4];
+        private ConditionalBlockLinker[] m_LinkerStack = new ConditionalBlockLinker[4];
         private int m_LinkerCount = 0;
+        private ConditionalBlockLinker m_CurrentLinker;
 
         private string m_CurrentNodeId;
         private bool m_HasChoices;
@@ -189,6 +247,7 @@ namespace Leaf.Compiler
             if (m_HasChoices)
             {
                 EmitInstruction(LeafOpcode.ShowChoices);
+                EmitInstruction(LeafOpcode.GotoNodeIndirect);
             }
 
             if (m_Verbose)
@@ -304,20 +363,24 @@ namespace Leaf.Compiler
             // if statements
             else if (data.Id == "if")
             {
-                EmitExpressionCall(data.Data);
-                EmitInstruction(LeafOpcode.JumpIfFalse, -1); // todo: link to else or endif
+                NewLinker().If(inPosition, data.Data, this);
+                return true;
             }
             else if (data.Id == "elseif")
             {
-                EmitInstruction(LeafOpcode.Jump, -1); // todo: link to end of if block
+                CurrentLinker(inPosition).ElseIf(inPosition, data.Data, this);
+                return true;
             }
             else if (data.Id == "else")
             {
-                EmitInstruction(LeafOpcode.Jump, -1); // todo: link to end of if block
+                CurrentLinker(inPosition).Else(inPosition, this);
+                return true;
             }
             else if (data.Id == "endif")
             {
-                // todo: finish if block
+                CurrentLinker(inPosition).EndIf(inPosition, this);
+                PopLinker();
+                return true;
             }
             return false;
         }
@@ -439,6 +502,11 @@ namespace Leaf.Compiler
 
         #region Emit
 
+        private int InstructionCount
+        {
+            get { return m_EmittedInstructions.Count; }
+        }
+
         private void EmitInstruction(LeafOpcode inOpcode, Variant inArgument = default(Variant))
         {
             m_EmittedInstructions.Add(new LeafInstruction(inOpcode, inArgument));
@@ -462,7 +530,44 @@ namespace Leaf.Compiler
 
         #region Sequence Linker
 
+        private ConditionalBlockLinker NewLinker()
+        {
+            if (m_LinkerCount >= m_LinkerStack.Length)
+            {
+                Array.Resize(ref m_LinkerStack, m_LinkerStack.Length + 2);
+            }
 
+            int idx = m_LinkerCount++;
+            ConditionalBlockLinker linker = m_LinkerStack[idx];
+            if (linker == null)
+            {
+                linker = m_LinkerStack[idx] = new ConditionalBlockLinker();
+            }
+            linker.Clear();
+
+            m_CurrentLinker = linker;
+            return linker;
+        }
+
+        private ConditionalBlockLinker CurrentLinker(BlockFilePosition inPosition)
+        {
+            if (m_CurrentLinker == null)
+                throw new SyntaxException(inPosition, "elseif, else, or endif statement without a corresponding if");
+
+            return m_CurrentLinker;
+        }
+
+        private void PopLinker()
+        {
+            if (m_CurrentLinker == null)
+                throw new InvalidOperationException("Attempting to pop null linker");
+            
+            m_CurrentLinker.Clear();
+            if (--m_LinkerCount > 0)
+                m_CurrentLinker = m_LinkerStack[m_LinkerCount - 1];
+            else
+                m_CurrentLinker = null;
+        }
 
         #endregion // Sequence Linker
 

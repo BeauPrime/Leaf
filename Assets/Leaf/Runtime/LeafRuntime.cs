@@ -200,15 +200,11 @@ namespace Leaf.Runtime
                                 yield return m_Plugin.ShowOptions(ioThreadState, currentChoice, this);
                                 StringHash32 chosenNode = currentChoice.ChosenNode();
                                 currentChoice.Reset();
-
-                                if (chosenNode == StringHash32.Null)
-                                {
-                                    ioThreadState.PopNode(m_Plugin);
-                                }
-                                else
-                                {
-                                    TryGotoNode(ioThreadState, node, currentChoice.ChosenNode());
-                                }
+                                ioThreadState.PushValue(chosenNode);
+                            }
+                            else
+                            {
+                                ioThreadState.PushValue(StringHash32.Null);
                             }
                             break;
                         }
@@ -223,6 +219,12 @@ namespace Leaf.Runtime
         /// </summary>
         public void TryGotoNode(LeafThreadState<TNode> ioThreadState, TNode inLocalNode, StringHash32 inNodeId)
         {
+            if (inNodeId.IsEmpty)
+            {
+                ioThreadState.GotoNode(null, m_Plugin);
+                return;
+            }
+
             TNode targetNode;
             if (TryLookupNode(inNodeId, inLocalNode, out targetNode))
             {
@@ -241,6 +243,11 @@ namespace Leaf.Runtime
         /// </summary>
         public void TryBranchNode(LeafThreadState<TNode> ioThreadState, TNode inLocalNode, StringHash32 inNodeId)
         {
+            if (inNodeId.IsEmpty)
+            {
+                return;
+            }
+
             TNode targetNode;
             if (TryLookupNode(inNodeId, inLocalNode, out targetNode))
             {

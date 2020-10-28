@@ -107,7 +107,10 @@ namespace Leaf.Runtime
                 PopNode(inPlugin);
             }
 
-            PushNode(inNode, inPlugin);
+            if (inNode != null)
+            {
+                PushNode(inNode, inPlugin);
+            }
         }
 
         /// <summary>
