@@ -328,6 +328,12 @@ namespace Leaf.Compiler
                 return true;
             }
 
+            if (data.Id == "yield")
+            {
+                EmitInstruction(LeafOpcode.Yield);
+                return true;
+            }
+
             if (data.Id == "loop")
             {
                 ProcessOptionalCondition(inPosition, data, LeafOpcode.Loop);

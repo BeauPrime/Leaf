@@ -38,5 +38,7 @@ namespace Leaf.Runtime
         ReturnFromNode, // no args
         Stop, // no args
         Loop, // no args
+
+        Yield // no args
     }
 }

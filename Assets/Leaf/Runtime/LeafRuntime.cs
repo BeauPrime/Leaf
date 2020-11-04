@@ -101,6 +101,12 @@ namespace Leaf.Runtime
                             break;
                         }
 
+                    case LeafOpcode.Yield:
+                        {
+                            yield return null;
+                            break;
+                        }
+
                     case LeafOpcode.Loop:
                         {
                             ioThreadState.ResetProgramCounter();
@@ -204,6 +210,7 @@ namespace Leaf.Runtime
                             }
                             else
                             {
+                                currentChoice.Reset();
                                 ioThreadState.PushValue(StringHash32.Null);
                             }
                             break;
