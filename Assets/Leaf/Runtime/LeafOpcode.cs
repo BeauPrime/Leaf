@@ -19,6 +19,7 @@ namespace Leaf.Runtime
         RunLine, // text id
 
         EvaluateExpression, // expression index [push val]
+        SetFromExpression, // expression index
         
         Jump, // instruction displacement
         JumpIfFalse, // instruction displacement, [pop bool]

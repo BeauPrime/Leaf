@@ -17,5 +17,6 @@ namespace Leaf.Runtime
         where TNode : LeafNode
     {
         Variant Evaluate(LeafThreadState<TNode> inThreadState, ILeafPlugin<TNode> inPlugin);
+        void Set(LeafThreadState<TNode> inThreadState, ILeafPlugin<TNode> inPlugin);
     }
 }

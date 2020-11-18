@@ -148,6 +148,20 @@ namespace Leaf.Runtime
                             break;
                         }
 
+                    case LeafOpcode.SetFromExpression:
+                        {
+                            ILeafExpression<TNode> expression;
+                            if (TryLookupExpression(instruction.Arg.AsUInt(), node, out expression))
+                            {
+                                expression.Set(ioThreadState, m_Plugin);
+                            }
+                            else
+                            {
+                                Debug.LogErrorFormat("[LeafRuntime] Could not locate expression {0} from node '{1}'", instruction.Arg.AsUInt(), node.Id().ToDebugString());
+                            }
+                            break;
+                        }
+
                     case LeafOpcode.GotoNode:
                         {
                             TryGotoNode(ioThreadState, node, instruction.Arg.AsStringHash());

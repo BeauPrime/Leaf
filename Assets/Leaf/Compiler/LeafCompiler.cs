@@ -50,6 +50,13 @@ namespace Leaf.Compiler
 
         private class ConditionalBlockLinker
         {
+            private enum BlockType
+            {
+                Unassigned,
+                If,
+                While
+            }
+
             private enum Phase
             {
                 Unstarted,
@@ -59,8 +66,12 @@ namespace Leaf.Compiler
             }
 
             private Phase m_Phase;
+            private BlockType m_Type;
             private int m_NextPointer = -1;
+            private int m_StartPointer = -1;
             private readonly List<int> m_EndPointers = new List<int>(4);
+
+            #region If
 
             /// <summary>
             /// Handles an if statement.
@@ -71,6 +82,7 @@ namespace Leaf.Compiler
                     throw new SyntaxException(inPosition, "If statement in an unexpected location");
                 
                 m_Phase = Phase.Started;
+                m_Type = BlockType.If;
                 
                 EmitExpressionCheck(inExpression, ioCompiler);
             }
@@ -80,6 +92,9 @@ namespace Leaf.Compiler
             /// </summary>
             public void ElseIf(BlockFilePosition inPosition, StringSlice inExpression, LeafCompiler<TNode> ioCompiler)
             {
+                if (m_Type != BlockType.If)
+                    throw new SyntaxException(inPosition, "elseIf while not in an if block");
+
                 switch(m_Phase)
                 {
                     case Phase.Unstarted:
@@ -101,6 +116,9 @@ namespace Leaf.Compiler
             /// </summary>
             public void Else(BlockFilePosition inPosition, LeafCompiler<TNode> ioCompiler)
             {
+                if (m_Type != BlockType.If)
+                    throw new SyntaxException(inPosition, "else while not in an if block");
+
                 switch(m_Phase)
                 {
                     case Phase.Unstarted:
@@ -122,6 +140,9 @@ namespace Leaf.Compiler
             /// </summary>
             public void EndIf(BlockFilePosition inPosition, LeafCompiler<TNode> ioCompiler)
             {
+                if (m_Type != BlockType.If)
+                    throw new SyntaxException(inPosition, "endif while not in an if block");
+
                 switch(m_Phase)
                 {
                     case Phase.Unstarted:
@@ -131,6 +152,86 @@ namespace Leaf.Compiler
                 m_Phase = Phase.Unstarted;
                 Advance(ioCompiler);
 
+                LinkEndPointers(ioCompiler);
+            }
+
+            #endregion // If
+
+            #region While
+
+            /// <summary>
+            /// Handles a while statement.
+            /// </summary>
+            public void While(BlockFilePosition inPosition, StringSlice inExpression, LeafCompiler<TNode> ioCompiler)
+            {
+                if (m_Phase != Phase.Unstarted)
+                    throw new SyntaxException(inPosition, "while statement in an unexpected location");
+                
+                m_Phase = Phase.Started;
+                m_Type = BlockType.While;
+                m_StartPointer = ioCompiler.InstructionCount;
+                
+                EmitExpressionCheckBlock(inExpression, ioCompiler);
+            }
+
+            /// <summary>
+            /// Handles a break statement
+            /// </summary>
+            public void Break(BlockFilePosition inPosition, LeafCompiler<TNode> ioCompiler)
+            {
+                if (m_Type != BlockType.While)
+                    throw new SyntaxException(inPosition, "break while not in a while block");
+
+                switch(m_Phase)
+                {
+                    case Phase.Unstarted:
+                        throw new SyntaxException(inPosition, "Break without corresponding initial while statement");
+                }
+
+                PointToEnd(ioCompiler);
+            }
+
+            /// <summary>
+            /// Handles a continue statement
+            /// </summary>
+            public void Continue(BlockFilePosition inPosition, LeafCompiler<TNode> ioCompiler)
+            {
+                if (m_Type != BlockType.While)
+                    throw new SyntaxException(inPosition, "continue while not in a while block");
+
+                switch(m_Phase)
+                {
+                    case Phase.Unstarted:
+                        throw new SyntaxException(inPosition, "Continue without corresponding initial while statement");
+                }
+
+                PointToStart(ioCompiler);
+            }
+
+            /// <summary>
+            /// Handles an endwhile statement
+            /// </summary>
+            public void EndWhile(BlockFilePosition inPosition, LeafCompiler<TNode> ioCompiler)
+            {
+                if (m_Type != BlockType.While)
+                    throw new SyntaxException(inPosition, "endwhile while not in a while block");
+
+                switch(m_Phase)
+                {
+                    case Phase.Unstarted:
+                        throw new SyntaxException(inPosition, "EndWhile without corresponding initial while statement");
+                }
+
+                m_Phase = Phase.Unstarted;
+                PointToStart(ioCompiler);
+
+                LinkEndPointers(ioCompiler);
+            }
+
+            #endregion // While
+
+            private void LinkEndPointers(LeafCompiler<TNode> ioCompiler)
+            {
                 for(int i = m_EndPointers.Count - 1; i >= 0; --i)
                 {
                     int idx = m_EndPointers[i];
@@ -148,6 +249,12 @@ namespace Leaf.Compiler
                 ioCompiler.EmitExpressionCall(inExpression);
                 ioCompiler.EmitInstruction(LeafOpcode.JumpIfFalse, -1);
                 m_NextPointer = ioCompiler.InstructionCount - 1;
+            }
+
+            private void EmitExpressionCheckBlock(StringSlice inExpression, LeafCompiler<TNode> ioCompiler)
+            {
+                ioCompiler.EmitExpressionCall(inExpression);
+                PointToEnd(ioCompiler);
             }
 
             private void Advance(LeafCompiler<TNode> ioCompiler)
@@ -168,14 +275,22 @@ namespace Leaf.Compiler
                 m_EndPointers.Add(ioCompiler.InstructionCount - 1);
             }
 
+            private void PointToStart(LeafCompiler<TNode> ioCompiler)
+            {
+                int jump = m_StartPointer - ioCompiler.InstructionCount;
+                ioCompiler.EmitInstruction(LeafOpcode.Jump, jump);
+            }
+
             /// <summary>
             /// Clears the block.
             /// </summary>
             public void Clear()
             {
                 m_NextPointer = -1;
+                m_StartPointer = -1;
                 m_EndPointers.Clear();
                 m_Phase = Phase.Unstarted;
+                m_Type = BlockType.Unassigned;
             }
         }
 
@@ -334,12 +449,6 @@ namespace Leaf.Compiler
                 return true;
             }
 
-            if (data.Id == "loop")
-            {
-                ProcessOptionalCondition(inPosition, data, LeafOpcode.Loop);
-                return true;
-            }
-
             if (data.Id == "return")
             {
                 ProcessOptionalCondition(inPosition, data, LeafOpcode.ReturnFromNode);
@@ -359,6 +468,22 @@ namespace Leaf.Compiler
                 return true;
             }
 
+            if (data.Id == "loop")
+            {
+                ProcessOptionalCondition(inPosition, data, LeafOpcode.Loop);
+                return true;
+            }
+
+            // set
+            if (data.Id == "set")
+            {
+                if (data.Data.IsEmpty)
+                    throw new SyntaxException(inPosition, "Expected expressions with set command");
+
+                EmitExpressionSet(data.Data);
+                return true;
+            }
+
             // choice
             if (data.Id == "choice")
             {
@@ -367,7 +492,7 @@ namespace Leaf.Compiler
             }
 
             // if statements
-            else if (data.Id == "if")
+            if (data.Id == "if")
             {
                 NewLinker().If(inPosition, data.Data, this);
                 return true;
@@ -388,6 +513,30 @@ namespace Leaf.Compiler
                 PopLinker();
                 return true;
             }
+
+            // while statements
+            if (data.Id == "while")
+            {
+                NewLinker().While(inPosition, data.Data, this);
+                return true;
+            }
+            else if (data.Id == "break")
+            {
+                CurrentLinker(inPosition).Break(inPosition, this);
+                return true;
+            }
+            else if (data.Id == "continue")
+            {
+                CurrentLinker(inPosition).Continue(inPosition, this);
+                return true;
+            }
+            else if (data.Id == "endwhile")
+            {
+                CurrentLinker(inPosition).EndWhile(inPosition, this);
+                PopLinker();
+                return true;
+            }
+
             return false;
         }
 
@@ -434,14 +583,6 @@ namespace Leaf.Compiler
 
         private void ProcessOptionalCondition(BlockFilePosition inPosition, TagData inData, LeafOpcode inOpcode)
         {
-            // Syntax
-            // loop
-            // loop expression
-            // stop
-            // stop expression
-            // return
-            // return expression
-
             if (!inData.Data.IsEmpty)
             {
                 EmitExpressionCall(inData.Data);
@@ -530,6 +671,13 @@ namespace Leaf.Compiler
             uint key = (uint) m_EmittedExpressions.Count;
             m_EmittedExpressions.Add(m_Plugin.CompileExpression(inExpression));
             EmitInstruction(LeafOpcode.EvaluateExpression, key);
+        }
+
+        private void EmitExpressionSet(StringSlice inExpression)
+        {
+            uint key = (uint) m_EmittedExpressions.Count;
+            m_EmittedExpressions.Add(m_Plugin.CompileExpression(inExpression));
+            EmitInstruction(LeafOpcode.SetFromExpression, key);
         }
 
         #endregion // Emit
