@@ -11,6 +11,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using BeauUtil;
+using BeauUtil.Variants;
 
 namespace Leaf
 {
@@ -24,13 +25,13 @@ namespace Leaf
         /// </summary>
         public struct Option
         {
-            public readonly StringHash32 NodeId;
+            public readonly Variant TargetId;
             public readonly StringHash32 LineCode;
             public readonly bool IsAvailable;
 
-            public Option(StringHash32 inNodeId, StringHash32 inLineCode, bool inbIsAvailable = true)
+            public Option(Variant inTargetId, StringHash32 inLineCode, bool inbIsAvailable = true)
             {
-                NodeId = inNodeId;
+                TargetId = inTargetId;
                 LineCode = inLineCode;
                 IsAvailable = inbIsAvailable;
             }
@@ -45,18 +46,20 @@ namespace Leaf
 
         private readonly List<Option> m_AllOptions = new List<Option>(4);
         private State m_State = State.Accumulating;
-        private StringHash32 m_ChosenOption;
+        private Variant m_ChosenOption;
 
         #region IReadOnlyList
 
         public int Count { get { return m_AllOptions.Count; } }
+
+        public int AvailableCount { get; private set; }
 
         public Option this[int index]
         {
             get { return m_AllOptions[index]; }
         }
 
-        public IEnumerable<Option> AllAvailableOptions()
+        public IEnumerable<Option> AvailableOptions()
         {
             for(int i = 0; i < m_AllOptions.Count; ++i)
             {
@@ -86,6 +89,10 @@ namespace Leaf
             if (m_State != State.Accumulating)
                 throw new InvalidOperationException(string.Format("Cannot add options while in {0} state", m_State));
             m_AllOptions.Add(inOption);
+            if (inOption.IsAvailable)
+            {
+                ++AvailableCount;
+            }
         }
 
         /// <summary>
@@ -101,22 +108,22 @@ namespace Leaf
         /// <summary>
         /// Chooses the option with the given node id.
         /// </summary>
-        public void Choose(StringHash32 inNodeId)
+        public void Choose(Variant inTargetId)
         {
             if (m_State != State.Choosing)
                 throw new InvalidOperationException(string.Format("Cannot choose an option while in {0} state", m_State));
 
             for(int i = m_AllOptions.Count - 1; i >= 0; --i)
             {
-                if (m_AllOptions[i].NodeId == inNodeId)
+                if (m_AllOptions[i].TargetId == inTargetId)
                 {
-                    m_ChosenOption = inNodeId;
+                    m_ChosenOption = inTargetId;
                     m_State = State.Chosen;
                     return;
                 }
             }
 
-            throw new Exception(string.Format("No option with node id {0} is present in this choice", inNodeId.ToDebugString()));
+            throw new Exception(string.Format("No option with target id {0} is present in this choice", inTargetId.ToDebugString()));
         }
 
         /// <summary>
@@ -129,7 +136,7 @@ namespace Leaf
             if (inIndex < 0 || inIndex >= m_AllOptions.Count)
                 throw new ArgumentOutOfRangeException("inIndex");
             
-            m_ChosenOption = m_AllOptions[inIndex].NodeId;
+            m_ChosenOption = m_AllOptions[inIndex].TargetId;
             m_State = State.Chosen;
         }
 
@@ -144,7 +151,7 @@ namespace Leaf
         /// <summary>
         /// Returns the chosen option's node.
         /// </summary>
-        public StringHash32 ChosenNode()
+        public Variant ChosenTarget()
         {
             return m_ChosenOption;
         }
@@ -155,8 +162,9 @@ namespace Leaf
         public void Reset()
         {
             m_AllOptions.Clear();
+            AvailableCount = 0;
             m_State = State.Accumulating;
-            m_ChosenOption = StringHash32.Null;
+            m_ChosenOption = Variant.Null;
         }
     }
 }

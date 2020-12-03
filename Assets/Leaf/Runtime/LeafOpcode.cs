@@ -23,6 +23,7 @@ namespace Leaf.Runtime
         
         Jump, // instruction displacement
         JumpIfFalse, // instruction displacement, [pop bool]
+        JumpIndirect, // [pop int]
         
         AddChoiceOption, // [pop bool, pop text id, pop node id]
         ShowChoices, // no args

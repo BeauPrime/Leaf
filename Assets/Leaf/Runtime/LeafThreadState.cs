@@ -167,9 +167,9 @@ namespace Leaf.Runtime
         /// <summary>
         /// Adds an option to the choice buffer.
         /// </summary>
-        public void AddOption(StringHash32 inNodeId, StringHash32 inLineCode, bool inbAvailable = true)
+        public void AddOption(Variant inTargetId, StringHash32 inLineCode, bool inbAvailable = true)
         {
-            m_ChoiceBuffer.AddOption(new LeafChoice.Option(inNodeId, inLineCode, inbAvailable));
+            m_ChoiceBuffer.AddOption(new LeafChoice.Option(inTargetId, inLineCode, inbAvailable));
         }
 
         /// <summary>

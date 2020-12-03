@@ -69,6 +69,7 @@ namespace Leaf.Compiler
             private BlockType m_Type;
             private int m_NextPointer = -1;
             private int m_StartPointer = -1;
+            private int m_ConditionalEndPointer = -1;
             private readonly List<int> m_EndPointers = new List<int>(4);
 
             #region If
@@ -232,6 +233,16 @@ namespace Leaf.Compiler
 
             private void LinkEndPointers(LeafCompiler<TNode> ioCompiler)
             {
+                if (m_ConditionalEndPointer >= 0)
+                {
+                    LeafInstruction inst = ioCompiler.m_EmittedInstructions[m_ConditionalEndPointer];
+                    int jump = ioCompiler.InstructionCount - m_ConditionalEndPointer;
+                    inst.SetArg(jump);
+                    ioCompiler.m_EmittedInstructions[m_ConditionalEndPointer] = inst;
+
+                    m_ConditionalEndPointer = -1;
+                }
+
                 for(int i = m_EndPointers.Count - 1; i >= 0; --i)
                 {
                     int idx = m_EndPointers[i];
@@ -254,7 +265,8 @@ namespace Leaf.Compiler
             private void EmitExpressionCheckBlock(StringSlice inExpression, LeafCompiler<TNode> ioCompiler)
             {
                 ioCompiler.EmitExpressionCall(inExpression);
-                PointToEnd(ioCompiler);
+                ioCompiler.EmitInstruction(LeafOpcode.JumpIfFalse, -1);
+                m_ConditionalEndPointer = ioCompiler.InstructionCount - 1;
             }
 
             private void Advance(LeafCompiler<TNode> ioCompiler)
@@ -288,6 +300,7 @@ namespace Leaf.Compiler
             {
                 m_NextPointer = -1;
                 m_StartPointer = -1;
+                m_ConditionalEndPointer = -1;
                 m_EndPointers.Clear();
                 m_Phase = Phase.Unstarted;
                 m_Type = BlockType.Unassigned;
@@ -452,6 +465,24 @@ namespace Leaf.Compiler
             if (data.Id == "return")
             {
                 ProcessOptionalCondition(inPosition, data, LeafOpcode.ReturnFromNode);
+                return true;
+            }
+
+            if (data.Id == "choose")
+            {
+                if (!m_HasChoices)
+                    throw new SyntaxException(inPosition, "choose must come after at least one choice statement");
+
+                EmitInstruction(LeafOpcode.ShowChoices);
+                if (data.Data.IsEmpty || data.Data == "goto")
+                    EmitInstruction(LeafOpcode.GotoNodeIndirect);
+                else if (data.Data == "branch")
+                    EmitInstruction(LeafOpcode.BranchNodeIndirect);
+                else
+                    throw new SyntaxException(inPosition, "unrecognized argument to choose statement '{0}' - must be either goto or branch", data.Data);
+
+                m_HasChoices = false;
+
                 return true;
             }
 
@@ -643,6 +674,8 @@ namespace Leaf.Compiler
             }
 
             EmitInstruction(LeafOpcode.AddChoiceOption);
+
+            m_HasChoices = true;
         }
 
         #endregion // Process

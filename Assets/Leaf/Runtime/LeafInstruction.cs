@@ -7,6 +7,7 @@
  * Purpose: Pairing of opcode and optional argument.
  */
 
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -17,6 +18,7 @@ namespace Leaf.Runtime
     /// <summary>
     /// Leaf operation.
     /// </summary>
+    [DebuggerDisplay("{ToDebugString()}")]
     [StructLayout(LayoutKind.Explicit, Size=8)]
     public struct LeafInstruction
     {

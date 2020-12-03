@@ -19,6 +19,8 @@ namespace Leaf
         void OnNodeEnter(TNode inNode, LeafThreadState<TNode> inThreadState);
         void OnNodeExit(TNode inNode, LeafThreadState<TNode> inThreadState);
 
+        void OnEnd(LeafThreadState<TNode> inThreadState);
+
         bool TryLookupLine(StringHash32 inLineCode, TNode inLocalNode, out string outLine);
         bool TryLookupNode(StringHash32 inNodeId, TNode inLocalNode, out TNode outNode);
 

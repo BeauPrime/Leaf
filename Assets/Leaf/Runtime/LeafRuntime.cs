@@ -203,11 +203,18 @@ namespace Leaf.Runtime
                             break;
                         }
 
+                    case LeafOpcode.JumpIndirect:
+                        {
+                            int jump = ioThreadState.PopValue().AsInt();
+                            ioThreadState.JumpRelative(jump);
+                            break;
+                        }
+
                     case LeafOpcode.AddChoiceOption:
                         {
                             bool bAvailable = ioThreadState.PopValue().AsBool();
                             StringHash32 lineCode = ioThreadState.PopValue().AsStringHash();
-                            StringHash32 nodeId = ioThreadState.PopValue().AsStringHash();
+                            Variant nodeId = ioThreadState.PopValue();
                             ioThreadState.AddOption(nodeId, lineCode, bAvailable);
                             break;
                         }
@@ -215,22 +222,24 @@ namespace Leaf.Runtime
                     case LeafOpcode.ShowChoices:
                         {
                             LeafChoice currentChoice = ioThreadState.GetOptions();
-                            if (currentChoice.Count > 0)
+                            if (currentChoice.AvailableCount > 0)
                             {
                                 yield return m_Plugin.ShowOptions(ioThreadState, currentChoice, this);
-                                StringHash32 chosenNode = currentChoice.ChosenNode();
+                                Variant chosenNode = currentChoice.ChosenTarget();
                                 currentChoice.Reset();
                                 ioThreadState.PushValue(chosenNode);
                             }
                             else
                             {
                                 currentChoice.Reset();
-                                ioThreadState.PushValue(StringHash32.Null);
+                                ioThreadState.PushValue(Variant.Null);
                             }
                             break;
                         }
                 }
             }
+
+            m_Plugin.OnEnd(ioThreadState);
         }
 
         #region Small Operations
