@@ -19,6 +19,9 @@ namespace Leaf.Compiler
         where TNode : LeafNode
     {
         char PathSeparator { get; }
+        bool CollapseContent { get; }
+        
         ILeafExpression<TNode> CompileExpression(StringSlice inExpression);
+        ILeafInvocation<TNode> CompileInvocation(StringSlice inMethod, StringSlice inArguments);
     }
 }

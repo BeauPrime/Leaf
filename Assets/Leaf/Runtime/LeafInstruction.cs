@@ -52,14 +52,14 @@ namespace Leaf.Runtime
 
         public override string ToString()
         {
-            if (Arg.Type == VariantType.Null)
+            if (Arg.Type == VariantType.Null && Op != LeafOpcode.PushValue)
                 return Op.ToString();
             return string.Format("{0}: {1}", Op, Arg);
         }
 
         public string ToDebugString()
         {
-            if (Arg.Type == VariantType.Null)
+            if (Arg.Type == VariantType.Null && Op != LeafOpcode.PushValue)
                 return Op.ToString();
             return string.Format("{0}: {1}", Op, Arg.ToDebugString());
         }

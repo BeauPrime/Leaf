@@ -86,11 +86,54 @@ namespace Leaf.Runtime
                             string line;
                             if (TryLookupLine(lineCode, node, out line))
                             {
-                                yield return m_Plugin.RunLine(ioThreadState, line, this);
+                                IEnumerator process = m_Plugin.RunLine(ioThreadState, line, this);
+                                if (process != null)
+                                    yield return process;
                             }
                             else
                             {
                                 Debug.LogErrorFormat("[LeafRuntime] Could not locate line '{0}' from node '{1}'", lineCode.ToDebugString(), node.Id().ToDebugString());
+                            }
+                            break;
+                        }
+
+                    case LeafOpcode.Invoke:
+                        {
+                            ILeafInvocation<TNode> invocation;
+                            if (TryLookupInvocation(instruction.Arg.AsUInt(), node, out invocation))
+                            {
+                                IEnumerator process = invocation.Invoke(ioThreadState, m_Plugin, null);
+                                if (process != null)
+                                    yield return process;
+                            }
+                            else
+                            {
+                                Debug.LogErrorFormat("[LeafRuntime] Could not locate invocation {0} from node '{1}'", instruction.Arg.AsUInt(), node.Id().ToDebugString());
+                            }
+                            break;
+                        }
+
+                    case LeafOpcode.InvokeWithTarget:
+                        {
+                            StringHash32 objectId = ioThreadState.PopValue().AsStringHash();
+                            object target;
+
+                            if (!TryLookupObject(objectId, ioThreadState, out target))
+                            {
+                                Debug.LogErrorFormat("[LeafRuntime] Could not locate target {0} from node '{1}'", objectId.ToDebugString(), node.Id().ToDebugString());
+                                break;
+                            }
+
+                            ILeafInvocation<TNode> invocation;
+                            if (TryLookupInvocation(instruction.Arg.AsUInt(), node, out invocation))
+                            {
+                                IEnumerator process = invocation.Invoke(ioThreadState, m_Plugin, target);
+                                if (process != null)
+                                    yield return process;
+                            }
+                            else
+                            {
+                                Debug.LogErrorFormat("[LeafRuntime] Could not locate invocation {0} from node '{1}'", instruction.Arg.AsUInt(), node.Id().ToDebugString());
                             }
                             break;
                         }
@@ -129,6 +172,40 @@ namespace Leaf.Runtime
                         {
                             StringHash32 nodeId = ioThreadState.PopValue().AsStringHash();
                             TryBranchNode(ioThreadState, node, nodeId);
+                            break;
+                        }
+
+                    case LeafOpcode.ForkNode:
+                        {
+                            TryForkNode(ioThreadState, node, instruction.Arg.AsStringHash(), true);
+                            break;
+                        }
+
+                    case LeafOpcode.ForkNodeIndirect:
+                        {
+                            StringHash32 nodeId = ioThreadState.PopValue().AsStringHash();
+                            TryForkNode(ioThreadState, node, nodeId, true);
+                            break;
+                        }
+
+                    case LeafOpcode.ForkNodeUntracked:
+                        {
+                            TryForkNode(ioThreadState, node, instruction.Arg.AsStringHash(), false);
+                            break;
+                        }
+
+                    case LeafOpcode.ForkNodeIndirectUntracked:
+                        {
+                            StringHash32 nodeId = ioThreadState.PopValue().AsStringHash();
+                            TryForkNode(ioThreadState, node, nodeId, false);
+                            break;
+                        }
+
+                    case LeafOpcode.JoinForks:
+                        {
+                            // TODO: Maybe a better way to wait?
+                            while(ioThreadState.HasChildren())
+                                yield return null;
                             break;
                         }
 
@@ -290,6 +367,32 @@ namespace Leaf.Runtime
             }
         }
 
+        /// <summary>
+        /// Attempts to fork a thread for the given node.
+        /// </summary>
+        public void TryForkNode(LeafThreadState<TNode> ioThreadState, TNode inLocalNode, StringHash32 inNodeId, bool inbTrack)
+        {
+            if (inNodeId.IsEmpty)
+            {
+                return;
+            }
+
+            TNode targetNode;
+            if (TryLookupNode(inNodeId, inLocalNode, out targetNode))
+            {
+                var newThread = m_Plugin.Fork(ioThreadState, targetNode);
+                if (inbTrack && newThread != null)
+                {
+                    ioThreadState.AddChild(newThread);
+                }
+            }
+            else
+            {
+                Debug.LogErrorFormat("[LeafRuntime] Could not branch to node '{0}' from '{1}' - node not found",
+                    inNodeId.ToDebugString(), inLocalNode.Id().ToDebugString());
+            }
+        }
+
         #endregion // Small Operations
     
         #region Lookups
@@ -336,6 +439,27 @@ namespace Leaf.Runtime
             bool bResult = module.TryGetExpression(inExpressionCode, out expression);
             outExpression = (ILeafExpression<TNode>) expression;
             return bResult;
+        }
+
+        protected bool TryLookupInvocation(uint inInvocationCode, TNode inLocalNode, out ILeafInvocation<TNode> outInvocation)
+        {
+            var module = inLocalNode.Module();
+
+            ILeafInvocation invocation;
+            bool bResult = module.TryGetInvocation(inInvocationCode, out invocation);
+            outInvocation = (ILeafInvocation<TNode>) invocation;
+            return bResult;
+        }
+
+        protected bool TryLookupObject(StringHash32 inTargetId, LeafThreadState<TNode> ioThreadState, out object outTarget)
+        {
+            if (inTargetId.IsEmpty)
+            {
+                outTarget = null;
+                return true;
+            }
+
+            return m_Plugin.TryLookupObject(inTargetId, ioThreadState, out outTarget);
         }
 
         #endregion // Lookups

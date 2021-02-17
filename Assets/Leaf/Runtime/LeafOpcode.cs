@@ -17,6 +17,9 @@ namespace Leaf.Runtime
     internal enum LeafOpcode : byte
     {
         RunLine, // text id
+        
+        Invoke, // expression index
+        InvokeWithTarget, // expression index [pop target id]
 
         EvaluateExpression, // expression index [push val]
         SetFromExpression, // expression index
@@ -36,6 +39,14 @@ namespace Leaf.Runtime
 
         BranchNode, // node id
         BranchNodeIndirect, // [pop node id]
+
+        ForkNode, // node id
+        ForkNodeIndirect, // [pop node id]
+
+        ForkNodeUntracked, // node id
+        ForkNodeIndirectUntracked, // [pop node id]
+
+        JoinForks, // no args
 
         ReturnFromNode, // no args
         Stop, // no args

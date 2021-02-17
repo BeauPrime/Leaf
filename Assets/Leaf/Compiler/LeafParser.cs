@@ -98,7 +98,7 @@ namespace Leaf.Compiler
         /// </summary>
         public virtual bool IsVerbose
         {
-            get { return UnityEngine.Application.isEditor; }
+            get { return UnityEngine.Application.isEditor && !UnityEngine.Application.isPlaying; }
         }
 
         /// <summary>
@@ -110,9 +110,25 @@ namespace Leaf.Compiler
         }
 
         /// <summary>
+        /// Indicates if successive lines of content should be collapsed into a single line.
+        /// </summary>
+        public virtual bool CollapseContent
+        {
+            get { return false; }
+        }
+
+        /// <summary>
         /// Compiles the given string into an expression.
         /// </summary>
         public abstract ILeafExpression<TNode> CompileExpression(StringSlice inExpression);
+
+        /// <summary>
+        /// Compiles the given method and arguments into an invocation.
+        /// </summary>
+        public virtual ILeafInvocation<TNode> CompileInvocation(StringSlice inMethod, StringSlice inArguments)
+        {
+            return new DefaultLeafInvocation<TNode>(inMethod, inArguments);
+        }
 
         /// <summary>
         /// Creates a node for the given id and package.

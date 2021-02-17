@@ -23,8 +23,14 @@ namespace Leaf
 
         bool TryLookupLine(StringHash32 inLineCode, TNode inLocalNode, out string outLine);
         bool TryLookupNode(StringHash32 inNodeId, TNode inLocalNode, out TNode outNode);
+        bool TryLookupObject(StringHash32 inObjectId, LeafThreadState<TNode> inThreadState, out object outObject);
 
         IEnumerator RunLine(LeafThreadState<TNode> inThreadState, StringSlice inLine, ILeafContentResolver inContentResolver);
         IEnumerator ShowOptions(LeafThreadState<TNode> inThreadState, LeafChoice inChoice, ILeafContentResolver inContentResolver);
+
+        IMethodCache MethodCache { get; }
+
+        LeafThreadState<TNode> Fork(LeafThreadState<TNode> inThreadState, TNode inForkNode);
+        void Kill(LeafThreadState<TNode> inThreadState);
     }
 }

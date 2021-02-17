@@ -16,6 +16,7 @@ namespace Leaf
     public interface ILeafModule : ILeafContentResolver
     {
         bool TryGetExpression(uint inExpressionCode, out ILeafExpression outExpression);
+        bool TryGetInvocation(uint inInvocationCode, out ILeafInvocation outInvocation);
         IEnumerable<KeyValuePair<StringHash32, string>> AllLines();
     }
 }

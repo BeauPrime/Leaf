@@ -29,17 +29,50 @@ namespace Leaf.Runtime
             }
         }
 
+        internal struct Handle
+        {
+            private LeafThreadState<TNode> m_State;
+            private uint m_Handle;
+
+            internal Handle(LeafThreadState<TNode> inState, uint inHandle)
+            {
+                m_State = inState;
+                m_Handle = inHandle;
+            }
+
+            internal bool IsRunning()
+            {
+                return Get() != null;
+            }
+
+            internal LeafThreadState<TNode> Get()
+            {
+                if (m_Handle > 0 && m_State != null && m_State.m_Magic != m_Handle)
+                {
+                    m_State = null;
+                    m_Handle = 0;
+                }
+
+                return m_State;
+            }
+        }
+
         #endregion // Types
         
         private readonly RingBuffer<Frame> m_FrameStack;
         private readonly RingBuffer<Variant> m_ValueStack;
+        private readonly RingBuffer<Handle> m_Children;
         private readonly LeafChoice m_ChoiceBuffer;
+
+        private uint m_Magic;
+        private bool m_Running;
 
         public LeafThreadState()
         {
             m_FrameStack = new RingBuffer<Frame>();
             m_ValueStack = new RingBuffer<Variant>();
             m_ChoiceBuffer = new LeafChoice();
+            m_Children = new RingBuffer<Handle>();
         }
 
         #region Program Counters
@@ -191,13 +224,82 @@ namespace Leaf.Runtime
 
         #endregion // Choices
 
+        #region Forks
+
+        /// <summary>
+        /// Returns if this thread has any children still running.
+        /// </summary>
+        public bool HasChildren()
+        {
+            while(m_Children.Count > 0)
+            {
+                if (m_Children.PeekBack().IsRunning())
+                    return true;
+                m_Children.PopBack();
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Adds the given thread as a child of this thread.
+        /// </summary>
+        public void AddChild(LeafThreadState<TNode> inThreadState)
+        {
+            if (inThreadState != null && inThreadState.m_Running)
+            {
+                m_Children.PushBack(inThreadState.GetHandle());
+            }
+        }
+
+        /// <summary>
+        /// Kills all children.
+        /// </summary>
+        public void KillChildren(ILeafPlugin<TNode> inPlugin)
+        {
+            while(m_Children.Count > 0)
+            {
+                var thread = m_Children.PopBack().Get();
+                if (thread != null)
+                    inPlugin.Kill(thread);
+            }
+        }
+
+        #endregion // Forks
+
+        #region Handles
+
+        /// <summary>
+        /// Sets up the state.
+        /// </summary>
+        public virtual void Setup()
+        {
+            m_Running = true;
+            m_Magic = (m_Magic == uint.MaxValue) ? 1 : m_Magic + 1;
+        }
+
+        /// <summary>
+        /// Returns a handle to this LeafThreadState.
+        /// </summary>
+        internal Handle GetHandle()
+        {
+            return m_Running ? new Handle(this, m_Magic) : default(Handle);
+        }
+
+        #endregion // Handles
+
         #region Cleanup
 
         public virtual void Reset(ILeafPlugin<TNode> inPlugin)
         {
             ClearNodes(inPlugin);
+            KillChildren(inPlugin);
+            
             m_ValueStack.Clear();
             m_ChoiceBuffer.Reset();
+            m_Children.Clear();
+            m_ChoiceBuffer.Reset();
+            m_Running = false;
         }
 
         #endregion // Cleanup

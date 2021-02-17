@@ -21,7 +21,7 @@ namespace Leaf.Compiler
     /// <summary>
     /// Compiles leaf nodes into instructions.
     /// </summary>
-    public class LeafCompiler<TNode>
+    public sealed class LeafCompiler<TNode>
         where TNode : LeafNode
     {
         #region Types
@@ -307,6 +307,12 @@ namespace Leaf.Compiler
             }
         }
 
+        private struct InvocationCache
+        {
+            public uint Key;
+            public StringHash32 Target;
+        }
+
         #endregion // Types
 
         #region Consts
@@ -317,8 +323,17 @@ namespace Leaf.Compiler
 
         private readonly List<LeafInstruction> m_EmittedInstructions = new List<LeafInstruction>(32);
         private readonly Dictionary<StringHash32, string> m_EmittedLines = new Dictionary<StringHash32, string>(32);
+
+        private readonly Dictionary<StringSlice, uint> m_ExpressionReuseMap = new Dictionary<StringSlice, uint>(32);
+        private readonly Dictionary<StringSlice, InvocationCache> m_InvocationReuseMap = new Dictionary<StringSlice, InvocationCache>(32);
+
         private readonly List<ILeafExpression<TNode>> m_EmittedExpressions = new List<ILeafExpression<TNode>>(32);
+        private readonly List<ILeafInvocation<TNode>> m_EmittedInvocations = new List<ILeafInvocation<TNode>>(32);
+
         private readonly StringBuilder m_TempStringBuilder = new StringBuilder(32);
+
+        private readonly StringBuilder m_ContentBuilder;
+        private BlockFilePosition m_ContentStartPosition;
 
         private ConditionalBlockLinker[] m_LinkerStack = new ConditionalBlockLinker[4];
         private int m_LinkerCount = 0;
@@ -326,6 +341,7 @@ namespace Leaf.Compiler
 
         private string m_CurrentNodeId;
         private bool m_HasChoices;
+        private bool m_HasForks;
         private int m_CurrentNodeLineOffset;
 
         private readonly ILeafCompilerPlugin<TNode> m_Plugin;
@@ -338,6 +354,11 @@ namespace Leaf.Compiler
                 throw new ArgumentNullException("inPlugin");
 
             m_Plugin = inPlugin;
+
+            if (m_Plugin.CollapseContent)
+                m_ContentBuilder = new StringBuilder(256);
+            else
+                m_ContentBuilder = new StringBuilder(1);
         }
 
         /// <summary>
@@ -348,6 +369,11 @@ namespace Leaf.Compiler
             Reset();
             m_Verbose = inbVerbose;
             m_RetrieveRoot = inPackage.RootPath;
+
+            if (m_Verbose)
+            {
+                UnityEngine.Debug.LogFormat("[LeafCompiler] Starting compilation for module '{0}'", inPackage.Name());
+            }
         }
 
         /// <summary>
@@ -360,6 +386,7 @@ namespace Leaf.Compiler
 
             m_CurrentNodeId = inNodeId;
             m_HasChoices = false;
+            m_HasForks = false;
             m_CurrentNodeLineOffset = -(int) inStartPosition.LineNumber;
             m_EmittedInstructions.Clear();
         }
@@ -370,7 +397,14 @@ namespace Leaf.Compiler
         public void FinishNode(TNode ioNode, BlockFilePosition inPosition)
         {
             if (m_LinkerCount > 0)
-                throw new SyntaxException(inPosition, "Unclosed if/endif block");
+                throw new SyntaxException(inPosition, "Unclosed linker block (if/endif or while/endwhile)");
+
+            FlushContent();
+
+            if (m_HasForks)
+            {
+                EmitInstruction(LeafOpcode.JoinForks);
+            }
 
             if (m_HasChoices)
             {
@@ -386,8 +420,10 @@ namespace Leaf.Compiler
 
             ioNode.SetInstructions(m_EmittedInstructions.ToArray());
             m_EmittedInstructions.Clear();
+
             m_CurrentNodeId = null;
             m_HasChoices = false;
+            m_HasForks = false;
         }
 
         /// <summary>
@@ -397,9 +433,27 @@ namespace Leaf.Compiler
         {
             ioPackage.SetLines(m_EmittedLines);
             ioPackage.SetExpressions(m_EmittedExpressions.ToArray());
+            ioPackage.SetInvocations(m_EmittedInvocations.ToArray());
             
+            if (m_Verbose)
+            {
+                m_TempStringBuilder.Length = 0;
+
+                m_TempStringBuilder.Append("[LeafCompiler] Finished compiling module '")
+                    .Append(ioPackage.Name()).Append('\'');
+                m_TempStringBuilder.Append("\nEmitted ").Append(m_EmittedLines.Count).Append(" text lines");
+                m_TempStringBuilder.Append("\nEmitted ").Append(m_EmittedExpressions.Count).Append(" expressions");
+                m_TempStringBuilder.Append("\nEmitted ").Append(m_EmittedInvocations.Count).Append(" invocations");
+
+                UnityEngine.Debug.LogFormat(m_TempStringBuilder.Flush());
+            }
+
             m_EmittedLines.Clear();
             m_EmittedExpressions.Clear();
+            m_EmittedInstructions.Clear();
+
+            m_ExpressionReuseMap.Clear();
+            m_InvocationReuseMap.Clear();
         }
 
         /// <summary>
@@ -410,9 +464,13 @@ namespace Leaf.Compiler
             m_EmittedInstructions.Clear();
             m_EmittedLines.Clear();
             m_EmittedExpressions.Clear();
+            m_EmittedInvocations.Clear();
+            m_ExpressionReuseMap.Clear();
+            m_InvocationReuseMap.Clear();
 
             m_CurrentNodeId = null;
             m_HasChoices = false;
+            m_HasForks = false;
             m_CurrentNodeLineOffset = 0;
 
             m_LinkerCount = 0;
@@ -435,9 +493,8 @@ namespace Leaf.Compiler
 
             if (TryProcessCommand(inFilePosition, beginningTrimmed))
                 return;
-            
-            StringHash32 lineCode = EmitLine(inFilePosition, inLine);
-            EmitInstruction(LeafOpcode.RunLine, lineCode);
+
+            ProcessContent(inFilePosition, inLine);
         }
 
         private bool TryProcessCommand(BlockFilePosition inPosition, StringSlice inLine)
@@ -450,33 +507,38 @@ namespace Leaf.Compiler
             TagData data = TagData.Parse(inLine, ParseRules);
 
             // single instructions
-            if (data.Id == "stop")
+            if (data.Id == LeafTokens.Stop)
             {
+                FlushContent();
                 ProcessOptionalCondition(inPosition, data, LeafOpcode.Stop);
                 return true;
             }
 
-            if (data.Id == "yield")
+            if (data.Id == LeafTokens.Yield)
             {
+                FlushContent();
                 EmitInstruction(LeafOpcode.Yield);
                 return true;
             }
 
-            if (data.Id == "return")
+            if (data.Id == LeafTokens.Return)
             {
+                FlushContent();
                 ProcessOptionalCondition(inPosition, data, LeafOpcode.ReturnFromNode);
                 return true;
             }
 
-            if (data.Id == "choose")
+            if (data.Id == LeafTokens.Choose)
             {
                 if (!m_HasChoices)
                     throw new SyntaxException(inPosition, "choose must come after at least one choice statement");
 
+                FlushContent();
+
                 EmitInstruction(LeafOpcode.ShowChoices);
-                if (data.Data.IsEmpty || data.Data == "goto")
+                if (data.Data.IsEmpty || data.Data == LeafTokens.Goto)
                     EmitInstruction(LeafOpcode.GotoNodeIndirect);
-                else if (data.Data == "branch")
+                else if (data.Data == LeafTokens.Branch)
                     EmitInstruction(LeafOpcode.BranchNodeIndirect);
                 else
                     throw new SyntaxException(inPosition, "unrecognized argument to choose statement '{0}' - must be either goto or branch", data.Data);
@@ -486,83 +548,133 @@ namespace Leaf.Compiler
                 return true;
             }
 
-            // goto/branch/loop
-            if (data.Id == "goto")
+            // goto/branch/fork/loop
+            if (data.Id == LeafTokens.Goto)
             {
+                FlushContent();
                 ProcessGotoBranch(inPosition, data, LeafOpcode.GotoNode, LeafOpcode.GotoNodeIndirect);
                 return true;
             }
 
-            if (data.Id == "branch")
+            if (data.Id == LeafTokens.Branch)
             {
+                FlushContent();
                 ProcessGotoBranch(inPosition, data, LeafOpcode.BranchNode, LeafOpcode.BranchNodeIndirect);
                 return true;
             }
 
-            if (data.Id == "loop")
+            if (data.Id == LeafTokens.Fork)
             {
+                FlushContent();
+                ProcessGotoBranch(inPosition, data, LeafOpcode.ForkNode, LeafOpcode.ForkNodeIndirect);
+                m_HasForks = true;
+                return true;
+            }
+
+            if (data.Id == LeafTokens.Start)
+            {
+                FlushContent();
+                ProcessGotoBranch(inPosition, data, LeafOpcode.ForkNodeUntracked, LeafOpcode.ForkNodeIndirectUntracked);
+                return true;
+            }
+
+            if (data.Id == LeafTokens.Loop)
+            {
+                FlushContent();
                 ProcessOptionalCondition(inPosition, data, LeafOpcode.Loop);
                 return true;
             }
 
+            if (data.Id == LeafTokens.Join)
+            {
+                if (!m_HasForks)
+                    throw new SyntaxException(inPosition, "join must come after at least one fork statement");
+                
+                FlushContent();
+                EmitInstruction(LeafOpcode.JoinForks);
+                m_HasForks = false;
+                return true;
+            }
+
             // set
-            if (data.Id == "set")
+            if (data.Id == LeafTokens.Set)
             {
                 if (data.Data.IsEmpty)
-                    throw new SyntaxException(inPosition, "Expected expressions with set command");
+                    throw new SyntaxException(inPosition, "set must be provided an expression");
 
+                FlushContent();
                 EmitExpressionSet(data.Data);
                 return true;
             }
 
-            // choice
-            if (data.Id == "choice")
+            // invoke/tell
+            if (data.Id == LeafTokens.Call)
             {
+                if (data.Data.IsEmpty)
+                    throw new SyntaxException(inPosition, "call must be provided a method");
+
+                FlushContent();
+                ProcessInvocation(inPosition, data);
+                return true;
+            }
+
+            // choice
+            if (data.Id == LeafTokens.Choice)
+            {
+                FlushContent();
                 ProcessChoice(inPosition, data);
                 return true;
             }
 
             // if statements
-            if (data.Id == "if")
+            if (data.Id == LeafTokens.If)
             {
+                FlushContent();
                 NewLinker().If(inPosition, data.Data, this);
                 return true;
             }
-            else if (data.Id == "elseif")
+            else if (data.Id == LeafTokens.ElseIf)
             {
+                FlushContent();
                 CurrentLinker(inPosition).ElseIf(inPosition, data.Data, this);
                 return true;
             }
-            else if (data.Id == "else")
+            else if (data.Id == LeafTokens.Else)
             {
+                FlushContent();
                 CurrentLinker(inPosition).Else(inPosition, this);
                 return true;
             }
-            else if (data.Id == "endif")
+            else if (data.Id == LeafTokens.EndIf)
             {
+                FlushContent();
                 CurrentLinker(inPosition).EndIf(inPosition, this);
                 PopLinker();
                 return true;
             }
 
             // while statements
-            if (data.Id == "while")
+            if (data.Id == LeafTokens.While)
             {
+                FlushContent();
                 NewLinker().While(inPosition, data.Data, this);
                 return true;
             }
-            else if (data.Id == "break")
+            else if (data.Id == LeafTokens.Break)
             {
+                FlushContent();
                 CurrentLinker(inPosition).Break(inPosition, this);
                 return true;
             }
-            else if (data.Id == "continue")
+            else if (data.Id == LeafTokens.Continue)
             {
+                FlushContent();
                 CurrentLinker(inPosition).Continue(inPosition, this);
                 return true;
             }
-            else if (data.Id == "endwhile")
+            else if (data.Id == LeafTokens.EndWhile)
             {
+                FlushContent();
                 CurrentLinker(inPosition).EndWhile(inPosition, this);
                 PopLinker();
                 return true;
@@ -582,6 +694,10 @@ namespace Leaf.Compiler
             // branch [node expression]
             // branch node, expression
             // branch [node expression], expression
+            // fork node
+            // fork [node expression]
+            // fork node, expression
+            // fork [node expression], expression
 
             StringSlice nodeId, expression;
             SplitNodeExpression(inData.Data, out nodeId, out expression);
@@ -678,6 +794,78 @@ namespace Leaf.Compiler
             m_HasChoices = true;
         }
 
+        private void ProcessInvocation(BlockFilePosition inPosition, TagData inData)
+        {
+            StringHash32 target;
+            uint key;
+
+            InvocationCache cache;
+            if (!m_InvocationReuseMap.TryGetValue(inData.Data, out cache))
+            {
+                key = (uint) m_EmittedInvocations.Count;
+
+                StringSlice method, args, targetSlice;
+                SplitMethodArgs(inData.Data, out method, out args);
+                SplitTargetMethod(method, out targetSlice, out method);
+
+                target = targetSlice;
+
+                m_EmittedInvocations.Add(m_Plugin.CompileInvocation(method, args));
+                m_InvocationReuseMap.Add(inData.Data, new InvocationCache()
+                {
+                    Target = target,
+                    Key = key
+                });
+            }
+            else
+            {
+                target = cache.Target;
+                key = cache.Key;
+            }
+
+            if (target.IsEmpty)
+            {
+                EmitInstruction(LeafOpcode.Invoke, key);
+            }
+            else
+            {
+                EmitInstruction(LeafOpcode.PushValue, target);
+                EmitInstruction(LeafOpcode.InvokeWithTarget, key);
+            }
+
+            return;
+
+            // if (inbAllowTarget)
+            // {
+            //     StringSlice target = StringSlice.Empty;
+
+            //     SplitTargetInvocation(invocation, out target, out invocation);
+            //     if (target.IsEmpty)
+            //         throw new SyntaxException(inPosition, "Target must be specified");
+
+            //     StringSlice targetExp;
+            //     if (IsIndirect(target, out targetExp))
+            //     {
+            //         EmitExpressionCall(targetExp);
+            //     }
+            //     else
+            //     {
+            //         EmitInstruction(LeafOpcode.PushValue, target.Hash32());
+            //     }
+
+            //     EmitInvoke(invocation, LeafOpcode.InvokeWithTarget);
+            // }
+            // else
+            // {
+            //     EmitInvoke(invocation, LeafOpcode.Invoke);
+            // }
+
+            // if (target.IsEmpty)
+            // {
+            //     EmitInvoke(invocation, LeafOpcode.Invoke)
+            // }
+        }
+
         #endregion // Process
 
         #region Emit
@@ -701,19 +889,68 @@ namespace Leaf.Compiler
 
         private void EmitExpressionCall(StringSlice inExpression)
         {
-            uint key = (uint) m_EmittedExpressions.Count;
-            m_EmittedExpressions.Add(m_Plugin.CompileExpression(inExpression));
+            uint key;
+            if (!m_ExpressionReuseMap.TryGetValue(inExpression, out key))
+            {
+                key = (uint) m_EmittedExpressions.Count;
+                m_EmittedExpressions.Add(m_Plugin.CompileExpression(inExpression));
+                m_ExpressionReuseMap.Add(inExpression, key);
+            }
             EmitInstruction(LeafOpcode.EvaluateExpression, key);
         }
 
         private void EmitExpressionSet(StringSlice inExpression)
         {
-            uint key = (uint) m_EmittedExpressions.Count;
-            m_EmittedExpressions.Add(m_Plugin.CompileExpression(inExpression));
+            uint key;
+            if (!m_ExpressionReuseMap.TryGetValue(inExpression, out key))
+            {
+                key = (uint) m_EmittedExpressions.Count;
+                m_EmittedExpressions.Add(m_Plugin.CompileExpression(inExpression));
+                m_ExpressionReuseMap.Add(inExpression, key);
+            }
+
             EmitInstruction(LeafOpcode.SetFromExpression, key);
         }
 
         #endregion // Emit
+
+        #region Content
+
+        private void ProcessContent(BlockFilePosition inPosition, StringSlice inLine)
+        {
+            if (!m_Plugin.CollapseContent)
+            {
+                StringHash32 lineCode = EmitLine(inPosition, inLine);
+                EmitInstruction(LeafOpcode.RunLine, lineCode);
+                return;
+            }
+
+            if (m_ContentBuilder.Length > 0)
+            {
+                m_ContentBuilder.Append('\n');
+            }
+            else
+            {
+                m_ContentStartPosition = inPosition;
+            }
+
+            inLine.AppendTo(m_ContentBuilder);
+        }
+
+        private void FlushContent()
+        {
+            if (m_ContentBuilder.Length > 0)
+            {
+                string text = m_ContentBuilder.Flush();
+                
+                StringHash32 lineCode = EmitLine(m_ContentStartPosition, text);
+                EmitInstruction(LeafOpcode.RunLine, lineCode);
+
+                m_ContentStartPosition = default(BlockFilePosition);
+            }
+        }
+
+        #endregion // Content
 
         #region Sequence Linker
 
@@ -783,6 +1020,28 @@ namespace Leaf.Compiler
                 outNodeId = inData;
                 outExpression = StringSlice.Empty;
             }
+        }
+
+        static private void SplitTargetMethod(StringSlice inData, out StringSlice outTarget, out StringSlice outMethod)
+        {
+            int indirectIndex = inData.IndexOf("->");
+            if (indirectIndex >= 0)
+            {
+                outTarget = inData.Substring(0, indirectIndex).TrimEnd(TagData.MinimalWhitespaceChars);
+                outMethod = inData.Substring(indirectIndex + 2).TrimStart(TagData.MinimalWhitespaceChars);
+            }
+            else
+            {
+                outTarget = StringSlice.Empty;
+                outMethod = inData;
+            }
+        }
+
+        static private void SplitMethodArgs(StringSlice inData, out StringSlice outMethod, out StringSlice outArgs)
+        {
+            TagData data = TagData.Parse(inData, ParseRules);
+            outMethod = data.Id;
+            outArgs = data.Data;
         }
 
         static private void SplitArgsContent(StringSlice inData, out StringSlice outArgs, out StringSlice outContent)

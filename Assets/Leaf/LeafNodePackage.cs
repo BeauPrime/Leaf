@@ -33,6 +33,7 @@ namespace Leaf
         protected readonly Dictionary<StringHash32, TNode> m_Nodes = new Dictionary<StringHash32, TNode>(32);
         protected readonly Dictionary<StringHash32, string> m_LineTable = new Dictionary<StringHash32, string>(32);
         protected ILeafExpression<TNode>[] m_ExpressionTable = Array.Empty<ILeafExpression<TNode>>();
+        protected ILeafInvocation<TNode>[] m_InvocationTable = Array.Empty<ILeafInvocation<TNode>>();
 
         protected LeafNodePackage(string inName)
         {
@@ -63,6 +64,11 @@ namespace Leaf
         internal void SetExpressions(ILeafExpression<TNode>[] inExpressions)
         {
             m_ExpressionTable = inExpressions;
+        }
+
+        internal void SetInvocations(ILeafInvocation<TNode>[] inInvocations)
+        {
+            m_InvocationTable = inInvocations;
         }
 
         #endregion // Modifications
@@ -110,6 +116,18 @@ namespace Leaf
             return true;
         }
 
+        bool ILeafModule.TryGetInvocation(uint inInvocationCode, out ILeafInvocation outInvocation)
+        {
+            if (inInvocationCode >= m_InvocationTable.Length)
+            {
+                outInvocation = null;
+                return false;
+            }
+
+            outInvocation = m_InvocationTable[(int) inInvocationCode];
+            return true;
+        }
+
         /// <summary>
         /// Returns all lines embedded in this package.
         /// </summary>
@@ -142,6 +160,7 @@ namespace Leaf
             m_Nodes.Clear();
             m_LineTable.Clear();
             m_ExpressionTable = Array.Empty<ILeafExpression<TNode>>();
+            m_InvocationTable = Array.Empty<ILeafInvocation<TNode>>();
         }
     }
 }
