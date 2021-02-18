@@ -27,15 +27,19 @@ namespace Leaf.Runtime
         public IEnumerator Invoke(LeafThreadState<TNode> inThreadState, ILeafPlugin<TNode> inPlugin, object inTarget)
         {
             var cache = inPlugin.MethodCache;
+            bool bSuccess;
             object result;
             if (inTarget == null)
             {
-                result = cache.StaticInvoke(m_MethodId, m_Arguments);
+                bSuccess = cache.TryStaticInvoke(m_MethodId, m_Arguments, out result);
             }
             else
             {
-                result = cache.Invoke(inTarget, m_MethodId, m_Arguments);
+                bSuccess = cache.TryInvoke(inTarget, m_MethodId, m_Arguments, out result);
             }
+
+            if (!bSuccess)
+                UnityEngine.Debug.LogErrorFormat("[DefaultLeafInvocation] Unable to execute method '{0}' with args '{1}'", m_MethodId, m_Arguments);
 
             return result as IEnumerator;
         }

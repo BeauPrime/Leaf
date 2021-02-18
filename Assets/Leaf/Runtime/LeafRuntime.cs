@@ -120,7 +120,7 @@ namespace Leaf.Runtime
 
                             if (!TryLookupObject(objectId, ioThreadState, out target))
                             {
-                                Debug.LogErrorFormat("[LeafRuntime] Could not locate target {0} from node '{1}'", objectId.ToDebugString(), node.Id().ToDebugString());
+                                Debug.LogWarningFormat("[LeafRuntime] Could not locate target {0} from node '{1}'", objectId.ToDebugString(), node.Id().ToDebugString());
                                 break;
                             }
 
