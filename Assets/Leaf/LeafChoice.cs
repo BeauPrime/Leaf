@@ -47,6 +47,7 @@ namespace Leaf
         private readonly List<Option> m_AllOptions = new List<Option>(4);
         private State m_State = State.Accumulating;
         private Variant m_ChosenOption;
+        private int m_ChosenIndex;
 
         #region IReadOnlyList
 
@@ -117,6 +118,7 @@ namespace Leaf
             {
                 if (m_AllOptions[i].TargetId == inTargetId)
                 {
+                    m_ChosenIndex = i;
                     m_ChosenOption = inTargetId;
                     m_State = State.Chosen;
                     return;
@@ -136,6 +138,7 @@ namespace Leaf
             if (inIndex < 0 || inIndex >= m_AllOptions.Count)
                 throw new ArgumentOutOfRangeException("inIndex");
             
+            m_ChosenIndex = inIndex;
             m_ChosenOption = m_AllOptions[inIndex].TargetId;
             m_State = State.Chosen;
         }
@@ -157,6 +160,14 @@ namespace Leaf
         }
 
         /// <summary>
+        /// Returns the index of the option.
+        /// </summary>
+        public int ChosenIndex()
+        {
+            return m_ChosenIndex;
+        }
+
+        /// <summary>
         /// Resets choice state.
         /// </summary>
         public void Reset()
@@ -165,6 +176,7 @@ namespace Leaf
             AvailableCount = 0;
             m_State = State.Accumulating;
             m_ChosenOption = Variant.Null;
+            m_ChosenIndex = -1;
         }
     }
 }
