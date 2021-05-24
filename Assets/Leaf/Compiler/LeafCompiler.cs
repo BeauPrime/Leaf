@@ -9,6 +9,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using BeauUtil;
 using BeauUtil.Blocks;
@@ -882,7 +883,31 @@ namespace Leaf.Compiler
 
         private StringHash32 EmitLine(BlockFilePosition inPosition, StringSlice inLine)
         {
-            StringHash32 key = GenerateLineCode(inPosition, m_CurrentNodeId, m_CurrentNodeLineOffset);
+            StringHash32 key = default(StringHash32);
+            int lineCodeIdx = inLine.IndexOf("$[");
+            if (lineCodeIdx >= 0)
+            {
+                int end = inLine.IndexOf(']', lineCodeIdx);
+                if (end >= 0)
+                {
+                    string staticLineCode = inLine.Substring(lineCodeIdx + 2, end - lineCodeIdx - 2).Trim().ToString();
+                    inLine = inLine.Substring(0, lineCodeIdx).TrimEnd();
+
+                    uint hexKey;
+                    if (uint.TryParse(staticLineCode, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out hexKey))
+                    {
+                        key = new StringHash32(hexKey);
+                    }
+                    else
+                    {
+                        key = staticLineCode;
+                    }
+                }
+            }
+            if (key.IsEmpty)
+            {
+                key = GenerateLineCode(inPosition, m_CurrentNodeId, m_CurrentNodeLineOffset);
+            }
             m_EmittedLines.Add(key, inLine.ToString());
             return key;
         }
