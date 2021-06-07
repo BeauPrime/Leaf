@@ -17,7 +17,7 @@ using Leaf.Runtime;
 
 namespace Leaf
 {
-    public abstract class LeafNodePackage<TNode> : IDataBlockPackage<TNode>, ILeafModule
+    public class LeafNodePackage<TNode> : IDataBlockPackage<TNode>, ILeafModule
         where TNode : LeafNode
     {
         // vars
@@ -35,7 +35,7 @@ namespace Leaf
         protected ILeafExpression<TNode>[] m_ExpressionTable = Array.Empty<ILeafExpression<TNode>>();
         protected ILeafInvocation<TNode>[] m_InvocationTable = Array.Empty<ILeafInvocation<TNode>>();
 
-        protected LeafNodePackage(string inName)
+        public LeafNodePackage(string inName)
         {
             m_Name = inName;
         }

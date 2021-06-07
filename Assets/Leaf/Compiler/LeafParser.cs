@@ -7,10 +7,10 @@
  * Purpose: Leaf block parser.
  */
 
-using System.Collections.Generic;
 using BeauUtil;
 using BeauUtil.Blocks;
 using BeauUtil.Tags;
+using Leaf.Defaults;
 using Leaf.Runtime;
 
 namespace Leaf.Compiler
@@ -68,7 +68,7 @@ namespace Leaf.Compiler
             inUtil.TempBuilder.Length = 0;
 
             StringSlice rootPath = inPackage.RootPath();
-            string fullId = LeafNode.AssembleFullId(inUtil.TempBuilder, rootPath, inId.Id, PathSeparator);
+            string fullId = LeafUtils.AssembleFullId(inUtil.TempBuilder, rootPath, inId.Id, PathSeparator);
             inPackage.m_Compiler.StartNode(fullId, inUtil.Position);
 
             TNode node = CreateNode(fullId, inId.Data, inPackage);
@@ -120,7 +120,10 @@ namespace Leaf.Compiler
         /// <summary>
         /// Compiles the given string into an expression.
         /// </summary>
-        public abstract ILeafExpression<TNode> CompileExpression(StringSlice inExpression);
+        public virtual ILeafExpression<TNode> CompileExpression(StringSlice inExpression)
+        {
+            return new DefaultLeafExpression<TNode>(inExpression);
+        }
 
         /// <summary>
         /// Compiles the given method and arguments into an invocation.

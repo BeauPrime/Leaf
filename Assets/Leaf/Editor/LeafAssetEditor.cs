@@ -31,7 +31,7 @@ namespace Leaf.Editor
         {
             if (m_Style == null)
             {
-                m_Style = "ScriptText";
+                m_Style = new GUIStyle("ScriptText");
             }
 
             long size = 0;

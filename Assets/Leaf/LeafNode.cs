@@ -18,42 +18,25 @@ namespace Leaf
     /// <summary>
     /// Leaf node.
     /// </summary>
-    public abstract class LeafNode : IDataBlock
+    public class LeafNode : IDataBlock
     {
         protected StringHash32 m_Id;
+        protected ILeafModule m_Module;
         protected LeafInstruction[] m_Instructions;
 
         public StringHash32 Id() { return m_Id; }
         public LeafInstruction[] Instructions() { return m_Instructions; }
-        public abstract ILeafModule Module();
+        public ILeafModule Module() { return m_Module; }
+
+        public LeafNode(StringHash32 inId, ILeafModule inModule)
+        {
+            m_Id = inId;
+            m_Module = inModule;
+        }
 
         internal void SetInstructions(LeafInstruction[] inInstructions)
         {
             m_Instructions = inInstructions;
-        }
-
-        /// <summary>
-        /// Returns if the given node identifier is valid.
-        /// </summary>
-        static public bool IsValidIdentifier(StringSlice inIdentifier)
-        {
-            return VariantUtils.IsValidIdentifier(inIdentifier);
-        }
-
-        static internal string AssembleFullId(StringBuilder ioBuilder, StringSlice inRoot, StringSlice inId, char inSeparator)
-        {
-            if (!inRoot.IsEmpty)
-            {
-                ioBuilder.AppendSlice(inRoot);
-                if (!inRoot.EndsWith(inSeparator))
-                {
-                    ioBuilder.Append(inSeparator);
-                }
-                ioBuilder.AppendSlice(inId);
-                return ioBuilder.Flush();
-            }
-            
-            return inId.ToString();
         }
     }
 }

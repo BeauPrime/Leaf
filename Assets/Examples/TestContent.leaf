@@ -1,0 +1,13 @@
+:: Start
+Yep, this is test content.
+Just test content.
+Is it interesting?
+Probably not.
+
+// a test of while loops
+
+$set someVar = 0
+$while someVar < 5
+	Testing {var someVar}...
+	$set someVar + 1
+$endwhile

@@ -8,6 +8,8 @@
  */
 
 using System.Text;
+using BeauUtil.Blocks;
+using Leaf.Compiler;
 using UnityEngine;
 
 namespace Leaf
@@ -45,6 +47,26 @@ namespace Leaf
         public void Create(byte[] inBytes)
         {
             m_Bytes = inBytes;
+        }
+
+        /// <summary>
+        /// Compiles a node package from a LeafAsset.
+        /// </summary>
+        static public TPackage Compile<TNode, TPackage>(LeafAsset inAsset, LeafParser<TNode, TPackage> inParser)
+            where TNode : LeafNode
+            where TPackage : LeafNodePackage<TNode>
+        {
+            return BlockParser.Parse(inAsset.name, inAsset.Source(), BlockParsingRules.Default, inParser);
+        }
+
+        /// <summary>
+        /// Compiles a node package from a LeafAsset.
+        /// </summary>
+        static public TPackage Compile<TNode, TPackage>(LeafAsset inAsset, IBlockParsingRules inParsingRules, LeafParser<TNode, TPackage> inParser)
+            where TNode : LeafNode
+            where TPackage : LeafNodePackage<TNode>
+        {
+            return BlockParser.Parse(inAsset.name, inAsset.Source(), inParsingRules, inParser);
         }
     }
 }

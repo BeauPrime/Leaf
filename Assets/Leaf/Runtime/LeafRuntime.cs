@@ -9,7 +9,6 @@
 
 using System;
 using System.Collections;
-using System.Collections.Generic;
 using BeauUtil;
 using BeauUtil.Variants;
 using UnityEngine;
@@ -54,7 +53,7 @@ namespace Leaf.Runtime
             if (inNode == null)
                 return null;
             
-            ioThreadState.PushNode(inNode, m_Plugin);
+            ioThreadState.PushNode(inNode);
             return Execute(ioThreadState);
         }
 
@@ -72,7 +71,7 @@ namespace Leaf.Runtime
                 var allNodeInstructions = node.Instructions();
                 if (pc >= allNodeInstructions.Length)
                 {
-                    ioThreadState.PopNode(m_Plugin);
+                    ioThreadState.PopNode();
                     continue;
                 }
 
@@ -140,7 +139,7 @@ namespace Leaf.Runtime
 
                     case LeafOpcode.Stop:
                         {
-                            ioThreadState.ClearNodes(m_Plugin);
+                            ioThreadState.ClearNodes();
                             break;
                         }
 
@@ -158,7 +157,7 @@ namespace Leaf.Runtime
 
                     case LeafOpcode.ReturnFromNode:
                         {
-                            ioThreadState.PopNode(m_Plugin);
+                            ioThreadState.PopNode();
                             break;
                         }
 
@@ -328,14 +327,14 @@ namespace Leaf.Runtime
         {
             if (inNodeId.IsEmpty)
             {
-                ioThreadState.GotoNode(null, m_Plugin);
+                ioThreadState.GotoNode(null);
                 return;
             }
 
             TNode targetNode;
             if (TryLookupNode(inNodeId, inLocalNode, out targetNode))
             {
-                ioThreadState.GotoNode(targetNode, m_Plugin);
+                ioThreadState.GotoNode(targetNode);
             }
             else
             {
@@ -358,7 +357,7 @@ namespace Leaf.Runtime
             TNode targetNode;
             if (TryLookupNode(inNodeId, inLocalNode, out targetNode))
             {
-                ioThreadState.PushNode(targetNode, m_Plugin);
+                ioThreadState.PushNode(targetNode);
             }
             else
             {

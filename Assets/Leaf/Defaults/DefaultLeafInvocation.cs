@@ -7,10 +7,12 @@
  * Purpose: Default leaf invocation implementation.
  */
 
+using System;
 using System.Collections;
 using BeauUtil;
+using Leaf.Runtime;
 
-namespace Leaf.Runtime
+namespace Leaf.Defaults
 {
     public class DefaultLeafInvocation<TNode> : ILeafInvocation<TNode>
         where TNode : LeafNode
@@ -26,7 +28,10 @@ namespace Leaf.Runtime
 
         public IEnumerator Invoke(LeafThreadState<TNode> inThreadState, ILeafPlugin<TNode> inPlugin, object inTarget)
         {
-            var cache = inPlugin.MethodCache;
+            IMethodCache cache = inPlugin.MethodCache;
+            if (cache == null)
+                throw new InvalidOperationException("Cannot use DefaultLeafInvocation if ILeafPlugin.MethodCache is not specified for plugin");
+            
             bool bSuccess;
             object result;
             if (inTarget == null)

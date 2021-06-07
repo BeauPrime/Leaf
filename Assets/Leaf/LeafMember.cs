@@ -7,7 +7,6 @@
  * Purpose: Leaf member attribute.
  */
 
-using System.Collections;
 using BeauUtil;
 
 namespace Leaf.Runtime

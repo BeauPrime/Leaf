@@ -9,170 +9,75 @@
 
 using BeauUtil;
 using BeauUtil.Variants;
+using BeauUtil.Debugger;
+using BeauRoutine;
+using System;
+using System.Collections;
+using BeauUtil.Tags;
 
 namespace Leaf.Runtime
 {
-    public class LeafThreadState<TNode>
-        where TNode : LeafNode
+    /// <summary>
+    /// Representation of an executing leaf thread.
+    /// </summary>
+    public abstract class LeafThreadState : ILeafVariableAccess
     {
-        #region Types
-
-        private struct Frame
-        {
-            public TNode Node;
-            public int ProgramCounter;
-
-            public Frame(TNode inNode)
-            {
-                Node = inNode;
-                ProgramCounter = -1;
-            }
-        }
-
-        internal struct Handle
-        {
-            private LeafThreadState<TNode> m_State;
-            private uint m_Handle;
-
-            internal Handle(LeafThreadState<TNode> inState, uint inHandle)
-            {
-                m_State = inState;
-                m_Handle = inHandle;
-            }
-
-            internal bool IsRunning()
-            {
-                return Get() != null;
-            }
-
-            internal LeafThreadState<TNode> Get()
-            {
-                if (m_Handle > 0 && m_State != null && m_State.m_Magic != m_Handle)
-                {
-                    m_State = null;
-                    m_Handle = 0;
-                }
-
-                return m_State;
-            }
-        }
-
-        #endregion // Types
-        
-        private readonly RingBuffer<Frame> m_FrameStack;
         private readonly RingBuffer<Variant> m_ValueStack;
-        private readonly RingBuffer<Handle> m_Children;
+        private readonly RingBuffer<LeafThreadHandle> m_Children;
         private readonly LeafChoice m_ChoiceBuffer;
+        private readonly Action m_KillAction;
 
-        private uint m_Magic;
-        private bool m_Running;
+        internal uint m_Id;
+        internal bool m_Running;
+
+        private string m_Name;
+        private VariantTable m_Locals;
+        private float m_QueuedDelay;
+
+        protected Routine m_Routine;
+
+        /// <summary>
+        /// Variant resolver. Overrides the default resolver in the plugin.
+        /// </summary>
+        public readonly CustomVariantResolver Resolver;
+
+        /// <summary>
+        /// Tagged string. Temporary state for the current string.
+        /// </summary>
+        public readonly TagString TagString;
 
         public LeafThreadState()
         {
-            m_FrameStack = new RingBuffer<Frame>();
             m_ValueStack = new RingBuffer<Variant>();
             m_ChoiceBuffer = new LeafChoice();
-            m_Children = new RingBuffer<Handle>();
-        }
+            m_Children = new RingBuffer<LeafThreadHandle>();
 
-        #region Program Counters
+            Resolver = new CustomVariantResolver();
+            TagString = new TagString();
 
-        internal void AdvanceState(out TNode outNode, out int outProgramCounter)
-        {
-            ref Frame currentFrame = ref m_FrameStack[0];
-            outNode = currentFrame.Node;
-            outProgramCounter = ++currentFrame.ProgramCounter;
-        }
-
-        internal void JumpRelative(int inJump)
-        {
-            m_FrameStack[0].ProgramCounter += (inJump - 1);
-        }
-
-        internal void JumpAbsolute(int inIndex)
-        {
-            m_FrameStack[0].ProgramCounter = inIndex - 1;
-        }
-
-        internal void ResetProgramCounter()
-        {
-            m_FrameStack[0].ProgramCounter = -1;
-        }
-
-        #endregion // Program Counters
-
-        #region Node Stack
-
-        /// <summary>
-        /// Pushes the given node onto the frame stack.
-        /// </summary>
-        public void PushNode(TNode inNode, ILeafPlugin<TNode> inPlugin)
-        {
-            m_FrameStack.PushFront(new Frame(inNode));
-            inPlugin?.OnNodeEnter(inNode, this);
+            m_KillAction = Kill;
         }
 
         /// <summary>
-        /// Peeks the node at the top of the frame stack.
+        /// Name of the thread.
         /// </summary>
-        public TNode PeekNode()
-        {
-            return m_FrameStack.PeekFront().Node;
-        }
+        public string Name { get { return m_Name; } }
 
         /// <summary>
-        /// Pops the current node from the frame stack.
+        /// Local variable table.
         /// </summary>
-        public void PopNode(ILeafPlugin<TNode> inPlugin)
-        {
-            TNode node = m_FrameStack.PopFront().Node;
-            inPlugin?.OnNodeExit(node, this);
-        }
+        public VariantTable Locals { get { return m_Locals; } }
 
-        /// <summary>
-        /// Pops the current node from the frame stack
-        /// and inserts the given node.
-        /// </summary>
-        public void GotoNode(TNode inNode, ILeafPlugin<TNode> inPlugin)
-        {
-            if (m_FrameStack.Count > 0)
-            {
-                PopNode(inPlugin);
-            }
+        IVariantResolver ILeafVariableAccess.Resolver { get { return Resolver; } }
 
-            if (inNode != null)
-            {
-                PushNode(inNode, inPlugin);
-            }
-        }
-
-        /// <summary>
-        /// Returns if there are any nodes in the frame stack.
-        /// </summary>
-        public bool HasNodes()
-        {
-            return m_FrameStack.Count > 0;
-        }
-
-        /// <summary>
-        /// Flushes all nodes from the frame stack.
-        /// </summary>
-        public void ClearNodes(ILeafPlugin<TNode> inPlugin)
-        {
-            while(m_FrameStack.Count > 0)
-            {
-                PopNode(inPlugin);
-            }
-        }
-
-        #endregion // Node Stack
+        #region Internal State
 
         #region Value Stack
 
         /// <summary>
         /// Pushes a value onto the value stack.
         /// </summary>
-        public void PushValue(Variant inValue)
+        internal void PushValue(Variant inValue)
         {
             m_ValueStack.PushBack(inValue);
         }
@@ -180,7 +85,7 @@ namespace Leaf.Runtime
         /// <summary>
         /// Peeks the current value on the value stack.
         /// </summary>
-        public Variant PeekValue()
+        internal Variant PeekValue()
         {
             return m_ValueStack.PeekBack();
         }
@@ -188,13 +93,13 @@ namespace Leaf.Runtime
         /// <summary>
         /// Pops a value from the value stack.
         /// </summary>
-        public Variant PopValue()
+        internal Variant PopValue()
         {
             return m_ValueStack.PopBack();
         }
 
         #endregion // Stack
-    
+
         #region Choices
 
         /// <summary>
@@ -244,7 +149,7 @@ namespace Leaf.Runtime
         /// <summary>
         /// Adds the given thread as a child of this thread.
         /// </summary>
-        public void AddChild(LeafThreadState<TNode> inThreadState)
+        public void AddChild(LeafThreadState inThreadState)
         {
             if (inThreadState != null && inThreadState.m_Running)
             {
@@ -255,13 +160,13 @@ namespace Leaf.Runtime
         /// <summary>
         /// Kills all children.
         /// </summary>
-        public void KillChildren(ILeafPlugin<TNode> inPlugin)
+        public void KillChildren()
         {
             while(m_Children.Count > 0)
             {
-                var thread = m_Children.PopBack().Get();
+                var thread = m_Children.PopBack().GetThread();
                 if (thread != null)
-                    inPlugin.Kill(thread);
+                    thread.Kill();
             }
         }
 
@@ -269,37 +174,289 @@ namespace Leaf.Runtime
 
         #region Handles
 
-        /// <summary>
-        /// Sets up the state.
-        /// </summary>
-        public virtual void Setup()
+        public LeafThreadHandle GetHandle()
         {
-            m_Running = true;
-            m_Magic = (m_Magic == uint.MaxValue) ? 1 : m_Magic + 1;
+            return m_Running ? new LeafThreadHandle(this, m_Id) : default(LeafThreadHandle);
         }
 
         /// <summary>
-        /// Returns a handle to this LeafThreadState.
+        /// Returns if this thread is operating with the given id.
         /// </summary>
-        internal Handle GetHandle()
+        public bool HasId(uint inId)
         {
-            return m_Running ? new Handle(this, m_Magic) : default(Handle);
+            return m_Running && m_Id == inId;
         }
 
         #endregion // Handles
 
+        #endregion // Internal State
+
+        #region Lifecycle
+
+        /// <summary>
+        /// Sets up the state.
+        /// </summary>
+        public virtual LeafThreadHandle Setup(string inName, VariantTable inLocals)
+        {
+            if (inLocals != null)
+            {
+                m_Locals = inLocals;
+                Resolver.SetDefaultTable(inLocals);
+            }
+
+            m_Name = inName;
+            m_Running = true;
+            m_Id = (m_Id == uint.MaxValue) ? 1 : m_Id + 1;
+            return GetHandle();
+        }
+
+        /// <summary>
+        /// Attaches a routine to this thread.
+        /// </summary>
+        public virtual void AttachRoutine(Routine inRoutine)
+        {
+            m_Routine = inRoutine;
+            inRoutine.OnComplete(m_KillAction);
+            if (m_QueuedDelay > 0)
+            {
+                m_Routine.DelayBy(m_QueuedDelay);
+                m_QueuedDelay = 0;
+            }
+        }
+
+        #endregion // Lifecycle
+
+        #region Updates
+
+        /// <summary>
+        /// If attached to a routine, forces this thread to tick forward.
+        /// </summary>
+        public void ForceTick()
+        {
+            m_Routine.TryManuallyUpdate(0);
+        }
+
+        /// <summary>
+        /// Returns if the thread is running or paused.
+        /// </summary>
+        public bool IsRunning() { return m_Running; }
+
+        /// <summary>
+        /// Pauses the thread.
+        /// </summary>
+        public void Pause() { m_Routine.Pause(); }
+
+        /// <summary>
+        /// Resumes the thread.
+        /// </summary>
+        public void Resume() { m_Routine.Resume(); }
+
+        /// <summary>
+        /// Returns if the thread is paused.
+        /// </summary>
+        public bool IsPaused() { return m_Routine.GetPaused(); }
+
+        /// <summary>
+        /// Waits for the thread to be completed.
+        /// </summary>
+        public IEnumerator Wait() { return m_Routine.Wait(); }
+
+        /// <summary>
+        /// Delays execution of the thread.
+        /// </summary>
+        public void DelayBy(float inDelaySeconds)
+        {
+            if (m_Routine)
+            {
+                m_Routine.DelayBy(inDelaySeconds);
+            }
+            else
+            {
+                m_QueuedDelay += inDelaySeconds;
+            }
+        }
+
+        #endregion // Updates
+
         #region Cleanup
 
-        public virtual void Reset(ILeafPlugin<TNode> inPlugin)
+        /// <summary>
+        /// Kills this thread.
+        /// </summary>
+        public void Kill()
         {
-            ClearNodes(inPlugin);
-            KillChildren(inPlugin);
+            if (m_Running)
+            {
+                Reset();
+            }
+        }
+
+        /// <summary>
+        /// Resets all thread state.
+        /// </summary>
+        protected virtual void Reset()
+        {
+            m_Running = false;
+
+            KillChildren();
             
             m_ValueStack.Clear();
             m_ChoiceBuffer.Reset();
             m_Children.Clear();
             m_ChoiceBuffer.Reset();
-            m_Running = false;
+            Resolver.Clear();
+            m_Locals = null;
+            m_Name = null;
+            m_QueuedDelay = 0;
+
+            m_Routine.Stop();
+        }
+
+        #endregion // Cleanup
+    }
+
+    /// <summary>
+    /// Leaf thread
+    /// </summary>
+    /// <typeparam name="TNode"></typeparam>
+    public class LeafThreadState<TNode> : LeafThreadState
+        where TNode : LeafNode
+    {
+        #region Types
+
+        private struct Frame
+        {
+            public TNode Node;
+            public int ProgramCounter;
+
+            public Frame(TNode inNode)
+            {
+                Node = inNode;
+                ProgramCounter = -1;
+            }
+        }
+
+        #endregion // Types
+        
+        private readonly RingBuffer<Frame> m_FrameStack;
+        private ILeafPlugin<TNode> m_Plugin;
+
+        public LeafThreadState(ILeafPlugin<TNode> inPlugin)
+        {
+            if (inPlugin == null)
+                throw new ArgumentNullException("inPlugin");
+
+            m_FrameStack = new RingBuffer<Frame>();
+            m_Plugin = inPlugin;
+            Resolver.Base = inPlugin.Resolver;
+        }
+
+        #region Internal State
+
+        #region Program Counters
+
+        internal void AdvanceState(out TNode outNode, out int outProgramCounter)
+        {
+            ref Frame currentFrame = ref m_FrameStack[0];
+            outNode = currentFrame.Node;
+            outProgramCounter = ++currentFrame.ProgramCounter;
+        }
+
+        internal void JumpRelative(int inJump)
+        {
+            m_FrameStack[0].ProgramCounter += (inJump - 1);
+        }
+
+        internal void JumpAbsolute(int inIndex)
+        {
+            m_FrameStack[0].ProgramCounter = inIndex - 1;
+        }
+
+        internal void ResetProgramCounter()
+        {
+            m_FrameStack[0].ProgramCounter = -1;
+        }
+
+        #endregion // Program Counters
+
+        #region Node Stack
+
+        /// <summary>
+        /// Pushes the given node onto the frame stack.
+        /// </summary>
+        public void PushNode(TNode inNode)
+        {
+            m_FrameStack.PushFront(new Frame(inNode));
+            m_Plugin?.OnNodeEnter(inNode, this);
+        }
+
+        /// <summary>
+        /// Peeks the node at the top of the frame stack.
+        /// </summary>
+        public TNode PeekNode()
+        {
+            return m_FrameStack.PeekFront().Node;
+        }
+
+        /// <summary>
+        /// Pops the current node from the frame stack.
+        /// </summary>
+        public void PopNode()
+        {
+            TNode node = m_FrameStack.PopFront().Node;
+            m_Plugin?.OnNodeExit(node, this);
+        }
+
+        /// <summary>
+        /// Pops the current node from the frame stack
+        /// and inserts the given node.
+        /// </summary>
+        public void GotoNode(TNode inNode)
+        {
+            if (m_FrameStack.Count > 0)
+            {
+                PopNode();
+            }
+
+            if (inNode != null)
+            {
+                PushNode(inNode);
+            }
+        }
+
+        /// <summary>
+        /// Returns if there are any nodes in the frame stack.
+        /// </summary>
+        public bool HasNodes()
+        {
+            return m_FrameStack.Count > 0;
+        }
+
+        /// <summary>
+        /// Flushes all nodes from the frame stack.
+        /// </summary>
+        public void ClearNodes()
+        {
+            while(m_FrameStack.Count > 0)
+            {
+                PopNode();
+            }
+        }
+
+        #endregion // Node Stack
+
+        #endregion // Internal State
+
+        #region Cleanup
+
+        /// <summary>
+        /// Resets thread state.
+        /// </summary>
+        protected override void Reset()
+        {
+            base.Reset();
+
+            ClearNodes();
         }
 
         #endregion // Cleanup

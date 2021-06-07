@@ -1,7 +1,8 @@
 {
     "name": "Leaf",
     "references": [
-        "BeauUtil"
+        "BeauUtil",
+        "BeauRoutine"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

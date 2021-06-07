@@ -9,11 +9,12 @@
 
 using System.Collections;
 using BeauUtil;
+using BeauUtil.Variants;
 using Leaf.Runtime;
 
 namespace Leaf
 {
-    public interface ILeafPlugin<TNode>
+    public interface ILeafPlugin<TNode> : ILeafVariableAccess
         where TNode : LeafNode
     {
         void OnNodeEnter(TNode inNode, LeafThreadState<TNode> inThreadState);
@@ -30,7 +31,6 @@ namespace Leaf
 
         IMethodCache MethodCache { get; }
 
-        LeafThreadState<TNode> Fork(LeafThreadState<TNode> inThreadState, TNode inForkNode);
-        void Kill(LeafThreadState<TNode> inThreadState);
+        LeafThreadState<TNode> Fork(LeafThreadState<TNode> inParentThreadState, TNode inForkNode);
     }
 }

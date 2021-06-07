@@ -311,6 +311,7 @@ namespace Leaf.Compiler
         {
             public uint Key;
             public StringHash32 Target;
+            public uint? TargetExpression;
         }
 
         #endregion // Types
@@ -381,7 +382,7 @@ namespace Leaf.Compiler
         /// </summary>
         public void StartNode(string inNodeId, BlockFilePosition inStartPosition)
         {
-            if (!LeafNode.IsValidIdentifier(inNodeId))
+            if (!LeafUtils.IsValidIdentifier(inNodeId))
                 throw new SyntaxException(inStartPosition, "Invalid node id '{0}'", inNodeId);
 
             m_CurrentNodeId = inNodeId;
@@ -721,7 +722,7 @@ namespace Leaf.Compiler
             {
                 nodeId = ProcessNodeId(nodeId);
 
-                if (!LeafNode.IsValidIdentifier(nodeId))
+                if (!LeafUtils.IsValidIdentifier(nodeId))
                     throw new SyntaxException(inPosition, "node identifier '{0}' is not a valid identifier", nodeId);
                     
                 EmitInstruction(inDirect, nodeId.Hash32());
@@ -769,7 +770,7 @@ namespace Leaf.Compiler
             {
                 nodeId = ProcessNodeId(nodeId);
 
-                if (!LeafNode.IsValidIdentifier(nodeId))
+                if (!LeafUtils.IsValidIdentifier(nodeId))
                     throw new SyntaxException(inPosition, "node identifier '{0}' is not a valid identifier", nodeId);
                     
                 EmitInstruction(LeafOpcode.PushValue, nodeId.Hash32());
@@ -797,6 +798,7 @@ namespace Leaf.Compiler
         private void ProcessInvocation(BlockFilePosition inPosition, TagData inData)
         {
             StringHash32 target;
+            uint? expressionTarget;
             uint key;
 
             InvocationCache cache;
@@ -808,19 +810,31 @@ namespace Leaf.Compiler
                 SplitMethodArgs(inData.Data, out method, out args);
                 SplitTargetMethod(method, out targetSlice, out method);
 
-                target = targetSlice;
+                StringSlice indirectTarget;
+                if (IsIndirect(targetSlice, out indirectTarget))
+                {
+                    target = indirectTarget;
+                    expressionTarget = EmitExpression(indirectTarget);
+                }
+                else
+                {
+                    target = targetSlice;
+                    expressionTarget = null;
+                }
 
                 m_EmittedInvocations.Add(m_Plugin.CompileInvocation(method, args));
                 m_InvocationReuseMap.Add(inData.Data, new InvocationCache()
                 {
                     Target = target,
-                    Key = key
+                    Key = key,
+                    TargetExpression = expressionTarget
                 });
             }
             else
             {
                 target = cache.Target;
                 key = cache.Key;
+                expressionTarget = cache.TargetExpression;
             }
 
             if (target.IsEmpty)
@@ -829,41 +843,16 @@ namespace Leaf.Compiler
             }
             else
             {
-                EmitInstruction(LeafOpcode.PushValue, target);
+                if (expressionTarget.HasValue)
+                {
+                    EmitInstruction(LeafOpcode.EvaluateExpression, expressionTarget.Value);
+                }
+                else
+                {
+                    EmitInstruction(LeafOpcode.PushValue, target);
+                }
                 EmitInstruction(LeafOpcode.InvokeWithTarget, key);
             }
-
-            return;
-
-            // if (inbAllowTarget)
-            // {
-            //     StringSlice target = StringSlice.Empty;
-
-            //     SplitTargetInvocation(invocation, out target, out invocation);
-            //     if (target.IsEmpty)
-            //         throw new SyntaxException(inPosition, "Target must be specified");
-
-            //     StringSlice targetExp;
-            //     if (IsIndirect(target, out targetExp))
-            //     {
-            //         EmitExpressionCall(targetExp);
-            //     }
-            //     else
-            //     {
-            //         EmitInstruction(LeafOpcode.PushValue, target.Hash32());
-            //     }
-
-            //     EmitInvoke(invocation, LeafOpcode.InvokeWithTarget);
-            // }
-            // else
-            // {
-            //     EmitInvoke(invocation, LeafOpcode.Invoke);
-            // }
-
-            // if (target.IsEmpty)
-            // {
-            //     EmitInvoke(invocation, LeafOpcode.Invoke)
-            // }
         }
 
         #endregion // Process
@@ -887,7 +876,7 @@ namespace Leaf.Compiler
             return key;
         }
 
-        private void EmitExpressionCall(StringSlice inExpression)
+        private uint EmitExpression(StringSlice inExpression)
         {
             uint key;
             if (!m_ExpressionReuseMap.TryGetValue(inExpression, out key))
@@ -896,19 +885,18 @@ namespace Leaf.Compiler
                 m_EmittedExpressions.Add(m_Plugin.CompileExpression(inExpression));
                 m_ExpressionReuseMap.Add(inExpression, key);
             }
+            return key;
+        }
+
+        private void EmitExpressionCall(StringSlice inExpression)
+        {
+            uint key = EmitExpression(inExpression);
             EmitInstruction(LeafOpcode.EvaluateExpression, key);
         }
 
         private void EmitExpressionSet(StringSlice inExpression)
         {
-            uint key;
-            if (!m_ExpressionReuseMap.TryGetValue(inExpression, out key))
-            {
-                key = (uint) m_EmittedExpressions.Count;
-                m_EmittedExpressions.Add(m_Plugin.CompileExpression(inExpression));
-                m_ExpressionReuseMap.Add(inExpression, key);
-            }
-
+            uint key = EmitExpression(inExpression);
             EmitInstruction(LeafOpcode.SetFromExpression, key);
         }
 
@@ -1001,7 +989,7 @@ namespace Leaf.Compiler
         {
             if (inNodeId.StartsWith(m_Plugin.PathSeparator))
             {
-                return LeafNode.AssembleFullId(m_TempStringBuilder, m_RetrieveRoot(), inNodeId.Substring(1), m_Plugin.PathSeparator);
+                return LeafUtils.AssembleFullId(m_TempStringBuilder, m_RetrieveRoot(), inNodeId.Substring(1), m_Plugin.PathSeparator);
             }
 
             return inNodeId;
