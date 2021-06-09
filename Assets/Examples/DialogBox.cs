@@ -50,8 +50,6 @@ namespace Leaf.Examples
                 Text.maxVisibleCharacters = 0;
 
                 TextGroup.gameObject.SetActive(true);
-
-                m_Handler.Base = inBaseHandler;
                 return m_Handler;
             }
 

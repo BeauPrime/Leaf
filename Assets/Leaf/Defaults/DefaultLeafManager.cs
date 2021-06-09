@@ -157,7 +157,12 @@ namespace Leaf.Defaults
 
             m_TagParser.Parse(ref eventString, inLine, inThreadState);
 
-            eventHandler = m_TextDisplayer.PrepareLine(eventString, eventHandler) ?? eventHandler;
+            TagStringEventHandler overrideHandler = m_TextDisplayer.PrepareLine(eventString, eventHandler);
+            if (overrideHandler != null)
+            {
+                overrideHandler.Base = eventHandler;
+                eventHandler = overrideHandler;
+            }
 
             for(int i = 0; i < eventString.Nodes.Length; i++)
             {
