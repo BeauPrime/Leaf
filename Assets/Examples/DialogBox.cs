@@ -12,14 +12,20 @@ namespace Leaf.Examples
     public class DialogBox : MonoBehaviour, ITextDisplayer, IChoiceDisplayer
     {
         public GameObject TextGroup;
+        public TMP_Text Character;
         public TMP_Text Text;
         public Button Continue;
         public float CharacterDelay = 0.03f;
+
+        private TagStringEventHandler m_Handler;
 
         private void Awake()
         {
             TextGroup.gameObject.SetActive(false);
             Continue.gameObject.SetActive(false);
+
+            m_Handler = new TagStringEventHandler();
+            m_Handler.Register("Target", (e, o) => Character.SetText(e.StringArgument.ToString()));
         }
 
         #region ITextDisplayer
@@ -44,6 +50,9 @@ namespace Leaf.Examples
                 Text.maxVisibleCharacters = 0;
 
                 TextGroup.gameObject.SetActive(true);
+
+                m_Handler.Base = inBaseHandler;
+                return m_Handler;
             }
 
             return null;

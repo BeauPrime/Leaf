@@ -5,6 +5,7 @@ using Leaf.Compiler;
 using Leaf.Runtime;
 using UnityEngine;
 using BeauUtil.Variants;
+using BeauRoutine;
 
 namespace Leaf.Examples
 {
@@ -44,9 +45,19 @@ namespace Leaf.Examples
                 LeafThreadState thread = (LeafThreadState) context;
                 return thread.GetVariable(tag.Data).ToString();
             });
+            parser.AddEvent("wait", "Wait").WithFloatData();
+            parser.AddEvent("@*", "Target").ProcessWith(ParseTargetArgs);
 
-            m_Manager.ConfigureTagStringHandling(parser, null);
+            TagStringEventHandler handler = new TagStringEventHandler();
+            handler.Register("Wait", (e, o) => Routine.WaitSeconds(e.Argument0.AsFloat()));
+
+            m_Manager.ConfigureTagStringHandling(parser, handler);
         }
+
+        private static void ParseTargetArgs(TagData inTag, object inContext, ref TagEventData ioEvent) 
+        {
+			ioEvent.StringArgument = inTag.Id.Substring(1);
+		}
 
         private class Parser : LeafParser<LeafNode, LeafNodePackage<LeafNode>>
         {

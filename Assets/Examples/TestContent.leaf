@@ -1,13 +1,13 @@
 :: Start
-Yep, this is test content.
-Just test content.
-Is it interesting?
-Probably not.
+{@lou} Yep, this is test content.
+{@lou} Just test content.
+{@me} Is it{wait 1} interesting?
+{@lou} Probably not.
 
 // a test of while loops
 
 $set someVar = 0
 $while someVar < 5
-	Testing {var someVar}...
+	{@me} Testing {var someVar}...
 	$set someVar + 1
 $endwhile
