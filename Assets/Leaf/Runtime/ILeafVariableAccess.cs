@@ -48,7 +48,7 @@ namespace Leaf.Runtime
         /// <summary>
         /// Returns the variable with the given identifier.
         /// </summary>
-        static public Variant GetVariable(this ILeafVariableAccess inAccess,TableKeyPair inIdentifier, object inContext = null)
+        static public Variant GetVariable(this ILeafVariableAccess inAccess, TableKeyPair inIdentifier, object inContext = null)
         {
             Variant variant;
             inAccess.Resolver.TryResolve(inContext, inIdentifier, out variant);
@@ -58,7 +58,7 @@ namespace Leaf.Runtime
         /// <summary>
         /// Sets the variable with the given identifier.
         /// </summary>
-        static public void SetVariable(this ILeafVariableAccess inAccess,StringSlice inIdentifier, Variant inValue, object inContext = null)
+        static public void SetVariable(this ILeafVariableAccess inAccess, StringSlice inIdentifier, Variant inValue, object inContext = null)
         {
             TableKeyPair key;
             if (!TableKeyPair.TryParse(inIdentifier, out key))
@@ -73,7 +73,7 @@ namespace Leaf.Runtime
         /// <summary>
         /// Sets the variable with the given identifier.
         /// </summary>
-        static public void SetVariable(this ILeafVariableAccess inAccess,TableKeyPair inIdentifier, Variant inValue, object inContext = null)
+        static public void SetVariable(this ILeafVariableAccess inAccess, TableKeyPair inIdentifier, Variant inValue, object inContext = null)
         {
             inAccess.Resolver.TryModify(inContext, inIdentifier, VariantModifyOperator.Set, inValue);
         }
@@ -81,7 +81,7 @@ namespace Leaf.Runtime
         /// <summary>
         /// Increments the variable with the given identifier.
         /// </summary>
-        static public void IncrementVariable(this ILeafVariableAccess inAccess,StringSlice inIdentifier, Variant inAmount, object inContext = null)
+        static public void IncrementVariable(this ILeafVariableAccess inAccess, StringSlice inIdentifier, Variant inAmount, object inContext = null)
         {
             TableKeyPair key;
             if (!TableKeyPair.TryParse(inIdentifier, out key))
@@ -96,7 +96,7 @@ namespace Leaf.Runtime
         /// <summary>
         /// Increments the variable with the given identifier.
         /// </summary>
-        static public void IncrementVariable(this ILeafVariableAccess inAccess,TableKeyPair inIdentifier, Variant inAmount, object inContext = null)
+        static public void IncrementVariable(this ILeafVariableAccess inAccess, TableKeyPair inIdentifier, Variant inAmount, object inContext = null)
         {
             inAccess.Resolver.TryModify(inContext, inIdentifier, VariantModifyOperator.Add, inAmount);
         }
@@ -105,7 +105,7 @@ namespace Leaf.Runtime
         /// Retrieves a variable with the given identifier.
         /// If the value equals the old value, the variable is set to the new value.
         /// </summary>
-        static public bool CompareExchange(this ILeafVariableAccess inAccess,StringSlice inIdentifier, Variant inOldValue, Variant inNewValue, object inContext = null)
+        static public bool CompareExchange(this ILeafVariableAccess inAccess, StringSlice inIdentifier, Variant inOldValue, Variant inNewValue, object inContext = null)
         {
             TableKeyPair keyPair;
             if (!TableKeyPair.TryParse(inIdentifier, out keyPair))
@@ -129,7 +129,7 @@ namespace Leaf.Runtime
         /// Retrieves a variable with the given identifier.
         /// If the value equals the old value, the variable is set to the new value.
         /// </summary>
-        static public bool CompareExchange(this ILeafVariableAccess inAccess,TableKeyPair inIdentifier, Variant inOldValue, Variant inNewValue, object inContext = null)
+        static public bool CompareExchange(this ILeafVariableAccess inAccess, TableKeyPair inIdentifier, Variant inOldValue, Variant inNewValue, object inContext = null)
         {
             Variant result = default(Variant);
             inAccess.Resolver.TryResolve(inContext, inIdentifier, out result);
@@ -146,9 +146,9 @@ namespace Leaf.Runtime
         /// Returns if the conditions described by the string are true.
         /// If given an empty string, this will also return true.
         /// </summary>
-        static public bool CheckConditions(this ILeafVariableAccess inAccess,StringSlice inConditions, object inContext = null)
+        static public bool CheckConditions(this ILeafVariableAccess inAccess, StringSlice inConditions, object inContext = null, IMethodCache inInvoker = null)
         {
-            return inAccess.Resolver.TryEvaluate(inContext, inConditions);
+            return inAccess.Resolver.TryEvaluate(inContext, inConditions, inInvoker);
         }
 
         #endregion // Variables

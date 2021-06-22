@@ -37,8 +37,16 @@ namespace Leaf.Defaults
                 resolver.TryResolve(inThreadState, keyPair, out value);
                 return value;
             }
+
+            MethodCall call;
+            if (MethodCall.TryParse(m_Expression, out call))
+            {
+                Variant value;
+                Variant.TryConvertFrom(inPlugin.MethodCache.StaticInvoke(call), out value);
+                return value;
+            }
             
-            return resolver.TryEvaluate(inThreadState, m_Expression);
+            return resolver.TryEvaluate(inThreadState, m_Expression, inPlugin.MethodCache);
         }
 
         public void Set(LeafThreadState<TNode> inThreadState, ILeafPlugin<TNode> inPlugin)
@@ -47,7 +55,7 @@ namespace Leaf.Defaults
             if (resolver == null)
                 throw new InvalidOperationException("Cannot use DefaultLeafExpression if resolver is not specified for thread and DefaultVariantResolver is not specified for plugin");
 
-            if (!resolver.TryModify(inThreadState, m_Expression))
+            if (!resolver.TryModify(inThreadState, m_Expression, inPlugin.MethodCache))
             {
                 UnityEngine.Debug.LogErrorFormat("[DefaultLeafExpression] Failed to set variables from string '{0}'", m_Expression);
             }

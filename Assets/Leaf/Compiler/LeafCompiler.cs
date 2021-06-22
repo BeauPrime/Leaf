@@ -1052,9 +1052,14 @@ namespace Leaf.Compiler
 
         static private void SplitMethodArgs(StringSlice inData, out StringSlice outMethod, out StringSlice outArgs)
         {
-            TagData data = TagData.Parse(inData, ParseRules);
-            outMethod = data.Id;
-            outArgs = data.Data;
+            int openParenIdx = inData.IndexOf('(');
+            int closeParenIdx = inData.LastIndexOf(')');
+
+            StringSlice methodSlice = inData.Substring(0, openParenIdx).TrimEnd();
+            int argsLength = closeParenIdx - 1 - openParenIdx;
+
+            outMethod = methodSlice;
+            outArgs = inData.Substring(openParenIdx + 1, argsLength);
         }
 
         static private void SplitArgsContent(StringSlice inData, out StringSlice outArgs, out StringSlice outContent)
