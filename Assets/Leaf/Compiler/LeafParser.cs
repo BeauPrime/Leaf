@@ -84,6 +84,11 @@ namespace Leaf.Compiler
             return true;
         }
 
+        public override void CompleteHeader(IBlockParserUtil inUtil, TPackage inPackage, TNode inBlock, TagData inAdditionalData)
+        {
+            inPackage.m_Compiler.StartNodeContent(inUtil.Position);
+        }
+
         public override void CompleteBlock(IBlockParserUtil inUtil, TPackage inPackage, TNode inBlock, TagData inAdditionalData, bool inbError)
         {
             inPackage.m_Compiler.FinishNode(inBlock, inUtil.Position);
@@ -120,9 +125,9 @@ namespace Leaf.Compiler
         /// <summary>
         /// Compiles the given string into an expression.
         /// </summary>
-        public virtual ILeafExpression<TNode> CompileExpression(StringSlice inExpression)
+        public virtual ILeafExpression<TNode> CompileExpression(StringSlice inExpression, LeafExpressionType inType)
         {
-            return new DefaultLeafExpression<TNode>(inExpression);
+            return new DefaultLeafExpression<TNode>(inExpression, inType);
         }
 
         /// <summary>

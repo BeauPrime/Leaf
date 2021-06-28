@@ -21,7 +21,7 @@ namespace Leaf.Compiler
         char PathSeparator { get; }
         bool CollapseContent { get; }
         
-        ILeafExpression<TNode> CompileExpression(StringSlice inExpression);
+        ILeafExpression<TNode> CompileExpression(StringSlice inExpression, LeafExpressionType inType);
         ILeafInvocation<TNode> CompileInvocation(StringSlice inMethod, StringSlice inArguments);
     }
 }

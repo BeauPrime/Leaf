@@ -59,7 +59,7 @@ namespace Leaf.Defaults
                 Resolver = defaultResolver;
             }
 
-            m_MethodCache = inCache ?? new MethodCache<LeafMember>();
+            m_MethodCache = inCache ?? LeafUtils.CreateMethodCache();
             m_Runtime = new LeafRuntime<TNode>(this);
             m_TagParser = new TagStringParser();
             m_TagParser.Delimiters = TagStringParser.CurlyBraceDelimiters;
@@ -94,23 +94,15 @@ namespace Leaf.Defaults
 
         #region Routines
 
-        public virtual LeafThreadHandle Run(TNode inNode, VariantTable inLocals = null, string inName = null)
+        public virtual LeafThreadHandle Run(TNode inNode, ILeafActor inActor = null, VariantTable inLocals = null, string inName = null)
         {
             if (inNode == null)
             {
                 return default(LeafThreadHandle);
             }
 
-            VariantTable table = null;
-            if (inLocals != null)
-            {
-                table = new VariantTable();
-                inLocals.CopyTo(table);
-                table.Base = inLocals.Base;
-            }
-
             LeafThreadState<TNode> threadState = new LeafThreadState<TNode>(this);
-            LeafThreadHandle handle = threadState.Setup(inName, table);
+            LeafThreadHandle handle = threadState.Setup(inName, inActor, inLocals);
             threadState.AttachRoutine(Routine.Start(m_RoutineHost, m_Runtime.Execute(threadState, inNode)));
 
             if (m_RoutineHost.isActiveAndEnabled)
@@ -121,7 +113,7 @@ namespace Leaf.Defaults
 
         public virtual LeafThreadState<TNode> Fork(LeafThreadState<TNode> inThreadState, TNode inForkNode)
         {
-            LeafThreadHandle handle = Run(inForkNode, inThreadState.Locals, null);
+            LeafThreadHandle handle = Run(inForkNode, inThreadState.Actor, inThreadState.Locals, null);
             return handle.GetThread<LeafThreadState<TNode>>();
         }
 

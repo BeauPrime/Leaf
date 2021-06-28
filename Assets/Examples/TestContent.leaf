@@ -1,8 +1,14 @@
 :: Start
 {@lou} Yep, this is test content.
 {@lou} Just test content.
-{@me} Is it{wait 1} interesting?
+{@me} Is it{wait 0.2} interesting?
 {@lou} Probably not.
+$call Wait(1)
+	Some other content?\
+	It might be extended to two lines.\
+	\
+	Or four? With line break support???
+{@me}	Wow. I'm impressed.
 
 // a test of while loops
 
@@ -11,3 +17,12 @@ $while someVar < 5
 	{@me} Testing {var someVar}...
 	$set someVar + 1
 $endwhile
+
+:: MoveLoop
+$call Shift(1, 0, 0, 0.5, Smooth)
+$call Shift(0, 1, 0, 0.5, Smooth)
+$call Wait(0.5)
+$call Shift(-1, 0, 0, 0.5, Smooth)
+$call Shift(0, -1, 0, 0.5, Smooth)
+$call Wait(0.5)
+$loop

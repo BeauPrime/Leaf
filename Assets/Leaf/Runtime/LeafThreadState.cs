@@ -25,14 +25,15 @@ namespace Leaf.Runtime
         private readonly RingBuffer<Variant> m_ValueStack;
         private readonly RingBuffer<LeafThreadHandle> m_Children;
         private readonly LeafChoice m_ChoiceBuffer;
+        private readonly VariantTable m_Locals;
         private readonly Action m_KillAction;
 
         internal uint m_Id;
         internal bool m_Running;
 
         private string m_Name;
-        private VariantTable m_Locals;
         private float m_QueuedDelay;
+        private ILeafActor m_ActorThis;
 
         protected Routine m_Routine;
 
@@ -50,12 +51,14 @@ namespace Leaf.Runtime
         {
             m_ValueStack = new RingBuffer<Variant>();
             m_ChoiceBuffer = new LeafChoice();
+            m_Locals = new VariantTable();
             m_Children = new RingBuffer<LeafThreadHandle>();
 
             Resolver = new CustomVariantResolver();
             TagString = new TagString();
 
             m_KillAction = Kill;
+            Resolver.SetDefaultTable(m_Locals);
         }
 
         /// <summary>
@@ -67,6 +70,11 @@ namespace Leaf.Runtime
         /// Local variable table.
         /// </summary>
         public VariantTable Locals { get { return m_Locals; } }
+
+        /// <summary>
+        /// Returns the default "this" object for this thread.
+        /// </summary>
+        public ILeafActor Actor { get { return m_ActorThis; } }
 
         IVariantResolver ILeafVariableAccess.Resolver { get { return Resolver; } }
 
@@ -196,17 +204,27 @@ namespace Leaf.Runtime
         /// <summary>
         /// Sets up the state.
         /// </summary>
-        public virtual LeafThreadHandle Setup(string inName, VariantTable inLocals)
+        public virtual LeafThreadHandle Setup(string inName, ILeafActor inActor, VariantTable inLocals)
         {
             if (inLocals != null)
             {
-                m_Locals = inLocals;
-                Resolver.SetDefaultTable(inLocals);
+                inLocals.CopyTo(m_Locals);
+            }
+            else
+            {
+                m_Locals.Clear();
+            }
+
+            if (inActor != null && inActor.Locals != null)
+            {
+                Resolver.SetTable(LeafUtils.ThisIdentifier, inActor.Locals);
             }
 
             m_Name = inName;
+            m_ActorThis = inActor;
             m_Running = true;
             m_Id = (m_Id == uint.MaxValue) ? 1 : m_Id + 1;
+            
             return GetHandle();
         }
 
@@ -278,6 +296,15 @@ namespace Leaf.Runtime
 
         #endregion // Updates
 
+        #region Lookups
+
+        /// <summary>
+        /// Attempts to look up an object from the given id.
+        /// </summary>
+        public abstract bool TryLookupObject(StringHash32 inId, out object outObject);
+
+        #endregion // Lookups
+
         #region Cleanup
 
         /// <summary>
@@ -305,9 +332,11 @@ namespace Leaf.Runtime
             m_Children.Clear();
             m_ChoiceBuffer.Reset();
             Resolver.Clear();
-            m_Locals = null;
+            m_Locals.Clear();
             m_Name = null;
             m_QueuedDelay = 0;
+            m_ActorThis = null;
+            Resolver.ClearTable(LeafUtils.ThisIdentifier);
 
             m_Routine.Stop();
         }
@@ -318,7 +347,6 @@ namespace Leaf.Runtime
     /// <summary>
     /// Leaf thread
     /// </summary>
-    /// <typeparam name="TNode"></typeparam>
     public class LeafThreadState<TNode> : LeafThreadState
         where TNode : LeafNode
     {
@@ -446,6 +474,33 @@ namespace Leaf.Runtime
         #endregion // Node Stack
 
         #endregion // Internal State
+
+        #region Lookups
+
+        public override bool TryLookupObject(StringHash32 inId, out object outObject)
+        {
+            if (inId.IsEmpty)
+            {
+                outObject = null;
+                return true;
+            }
+
+            if (inId == LeafUtils.ThisIdentifier)
+            {
+                outObject = Actor;
+                return true;
+            }
+
+            if (inId == LeafUtils.ThreadIdentifier)
+            {
+                outObject = this;
+                return true;
+            }
+
+            return m_Plugin.TryLookupObject(inId, this, out outObject);
+        }
+
+        #endregion // Lookups
 
         #region Cleanup
 

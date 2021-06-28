@@ -10,6 +10,7 @@
 using System;
 using System.Collections;
 using BeauUtil;
+using BeauUtil.Debugger;
 using BeauUtil.Variants;
 using UnityEngine;
 
@@ -18,7 +19,7 @@ namespace Leaf.Runtime
     /// <summary>
     /// Runtime environment for LeafThreadState.
     /// </summary>
-    public class LeafRuntime<TNode> : ILeafContentResolver
+    public sealed class LeafRuntime<TNode> : ILeafContentResolver
         where TNode : LeafNode
     {
         private ILeafPlugin<TNode> m_Plugin;
@@ -91,7 +92,7 @@ namespace Leaf.Runtime
                             }
                             else
                             {
-                                Debug.LogErrorFormat("[LeafRuntime] Could not locate line '{0}' from node '{1}'", lineCode.ToDebugString(), node.Id().ToDebugString());
+                                Log.Error("[LeafRuntime] Could not locate line '{0}' from node '{1}'", lineCode, node.Id());
                             }
                             break;
                         }
@@ -107,7 +108,7 @@ namespace Leaf.Runtime
                             }
                             else
                             {
-                                Debug.LogErrorFormat("[LeafRuntime] Could not locate invocation {0} from node '{1}'", instruction.Arg.AsUInt(), node.Id().ToDebugString());
+                                Log.Error("[LeafRuntime] Could not locate invocation {0} from node '{1}'", instruction.Arg.AsUInt(), node.Id());
                             }
                             break;
                         }
@@ -119,7 +120,7 @@ namespace Leaf.Runtime
 
                             if (!TryLookupObject(objectId, ioThreadState, out target))
                             {
-                                Debug.LogWarningFormat("[LeafRuntime] Could not locate target {0} from node '{1}'", objectId.ToDebugString(), node.Id().ToDebugString());
+                                Log.Warn("[LeafRuntime] Could not locate target {0} from node '{1}'", objectId, node.Id());
                                 break;
                             }
 
@@ -132,7 +133,7 @@ namespace Leaf.Runtime
                             }
                             else
                             {
-                                Debug.LogErrorFormat("[LeafRuntime] Could not locate invocation {0} from node '{1}'", instruction.Arg.AsUInt(), node.Id().ToDebugString());
+                                Log.Error("[LeafRuntime] Could not locate invocation {0} from node '{1}'", instruction.Arg.AsUInt(), node.Id());
                             }
                             break;
                         }
@@ -218,7 +219,7 @@ namespace Leaf.Runtime
                             }
                             else
                             {
-                                Debug.LogErrorFormat("[LeafRuntime] Could not locate expression {0} from node '{1}'", instruction.Arg.AsUInt(), node.Id().ToDebugString());
+                                Log.Error("[LeafRuntime] Could not locate expression {0} from node '{1}'", instruction.Arg.AsUInt(), node.Id());
                                 ioThreadState.PushValue(Variant.Null);
                             }
                             break;
@@ -229,11 +230,11 @@ namespace Leaf.Runtime
                             ILeafExpression<TNode> expression;
                             if (TryLookupExpression(instruction.Arg.AsUInt(), node, out expression))
                             {
-                                expression.Set(ioThreadState, m_Plugin);
+                                expression.Assign(ioThreadState, m_Plugin);
                             }
                             else
                             {
-                                Debug.LogErrorFormat("[LeafRuntime] Could not locate expression {0} from node '{1}'", instruction.Arg.AsUInt(), node.Id().ToDebugString());
+                                Log.Error("[LeafRuntime] Could not locate expression {0} from node '{1}'", instruction.Arg.AsUInt(), node.Id());
                             }
                             break;
                         }
@@ -338,8 +339,8 @@ namespace Leaf.Runtime
             }
             else
             {
-                Debug.LogErrorFormat("[LeafRuntime] Could not go to node '{0}' from '{1}' - node not found",
-                    inNodeId.ToDebugString(), inLocalNode.Id().ToDebugString());
+                Log.Error("[LeafRuntime] Could not go to node '{0}' from '{1}' - node not found",
+                    inNodeId, inLocalNode.Id());
             }
         }
 
@@ -361,8 +362,8 @@ namespace Leaf.Runtime
             }
             else
             {
-                Debug.LogErrorFormat("[LeafRuntime] Could not branch to node '{0}' from '{1}' - node not found",
-                    inNodeId.ToDebugString(), inLocalNode.Id().ToDebugString());
+                Log.Error("[LeafRuntime] Could not branch to node '{0}' from '{1}' - node not found",
+                    inNodeId, inLocalNode.Id());
             }
         }
 
@@ -387,8 +388,8 @@ namespace Leaf.Runtime
             }
             else
             {
-                Debug.LogErrorFormat("[LeafRuntime] Could not branch to node '{0}' from '{1}' - node not found",
-                    inNodeId.ToDebugString(), inLocalNode.Id().ToDebugString());
+                Log.Error("[LeafRuntime] Could not branch to node '{0}' from '{1}' - node not found",
+                    inNodeId, inLocalNode.Id());
             }
         }
 
@@ -430,7 +431,7 @@ namespace Leaf.Runtime
             return true;
         }
 
-        protected bool TryLookupExpression(uint inExpressionCode, TNode inLocalNode, out ILeafExpression<TNode> outExpression)
+        private bool TryLookupExpression(uint inExpressionCode, TNode inLocalNode, out ILeafExpression<TNode> outExpression)
         {
             var module = inLocalNode.Module();
 
@@ -440,7 +441,7 @@ namespace Leaf.Runtime
             return bResult;
         }
 
-        protected bool TryLookupInvocation(uint inInvocationCode, TNode inLocalNode, out ILeafInvocation<TNode> outInvocation)
+        private bool TryLookupInvocation(uint inInvocationCode, TNode inLocalNode, out ILeafInvocation<TNode> outInvocation)
         {
             var module = inLocalNode.Module();
 
@@ -450,13 +451,10 @@ namespace Leaf.Runtime
             return bResult;
         }
 
-        protected bool TryLookupObject(StringHash32 inTargetId, LeafThreadState<TNode> ioThreadState, out object outTarget)
+        private bool TryLookupObject(StringHash32 inTargetId, LeafThreadState<TNode> ioThreadState, out object outTarget)
         {
-            if (inTargetId.IsEmpty)
-            {
-                outTarget = null;
-                return true;
-            }
+            if (ioThreadState != null)
+                return ioThreadState.TryLookupObject(inTargetId, out outTarget);
 
             return m_Plugin.TryLookupObject(inTargetId, ioThreadState, out outTarget);
         }
