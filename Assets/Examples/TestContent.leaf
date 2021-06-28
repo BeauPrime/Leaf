@@ -9,20 +9,24 @@ $call Wait(1)
 	\
 	Or four? With line break support???
 {@me}	Wow. I'm impressed.
+$set someVarSet = true
 
 // a test of while loops
 
-$set someVar = 0
-$while someVar < 5
-	{@me} Testing {var someVar}...
-	$set someVar + 1
+$set local:someVar = 0
+$while local:someVar < 5
+	{@me} Testing {var local:someVar}...
+	$set local:someVar + 1
 $endwhile
 
 :: MoveLoop
+
 $call Shift(1, 0, 0, 0.5, Smooth)
 $call Shift(0, 1, 0, 0.5, Smooth)
-$call Wait(0.5)
 $call Shift(-1, 0, 0, 0.5, Smooth)
 $call Shift(0, -1, 0, 0.5, Smooth)
-$call Wait(0.5)
+$if someVarSet
+	$call Shift(0, -1, 0, 0.5, Smooth)
+$endif
+
 $loop

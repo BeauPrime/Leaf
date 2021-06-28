@@ -51,14 +51,14 @@ namespace Leaf.Runtime
         {
             m_ValueStack = new RingBuffer<Variant>();
             m_ChoiceBuffer = new LeafChoice();
-            m_Locals = new VariantTable();
+            m_Locals = new VariantTable(LeafUtils.LocalIdentifier);
             m_Children = new RingBuffer<LeafThreadHandle>();
 
             Resolver = new CustomVariantResolver();
             TagString = new TagString();
 
             m_KillAction = Kill;
-            Resolver.SetDefaultTable(m_Locals);
+            Resolver.SetTable(LeafUtils.LocalIdentifier, m_Locals);
         }
 
         /// <summary>

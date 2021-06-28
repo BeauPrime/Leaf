@@ -33,6 +33,11 @@ namespace Leaf
         /// </summary>
         static public readonly StringHash32 ThreadIdentifier = "thread";
 
+        /// <summary>
+        /// Special "locals" identifier.
+        /// </summary>
+        static public readonly StringHash32 LocalIdentifier = "local";
+
         #region Identifiers
 
         /// <summary>

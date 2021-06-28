@@ -226,10 +226,10 @@ Object identifiers point to an object within the scene. They can be specified in
 ### Call
 
 ```
-$call method_name
-$call method_name arg0, arg1, arg2, ...
-$call object_name->method_name
-$call object_name->method_name arg0, arg1, arg2, ...
+$call method_name()
+$call method_name(arg0, arg1, arg2, ...)
+$call object_name->method_name()
+$call object_name->method_name(arg0, arg1, arg2, ...)
 ```
 
 The `$call` statement executes a developer-defined method in the code and waits for it to finish invoking before continuing execution of the thread. An arbitrary number of arguments can be passed into these methods, corresponding to the number of arguments supported by the corresponding code. These arguments must be separated by the `,` character.
