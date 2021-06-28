@@ -27,17 +27,6 @@ namespace Leaf.Compiler
     {
         #region Types
 
-        private class SyntaxException : Exception
-        {
-            public SyntaxException(BlockFilePosition inPosition, string inMessage)
-                : base(string.Format("Syntax Error at {0}: {1}", inPosition, inMessage))
-            { }
-
-            public SyntaxException(BlockFilePosition inPosition, string inMessage, params object[] inArgs)
-                : this(inPosition, string.Format(inMessage, inArgs))
-            { }
-        }
-
         private class CleanedParseRules : IDelimiterRules
         {
             public string TagStartDelimiter { get { return string.Empty; } }
@@ -86,7 +75,7 @@ namespace Leaf.Compiler
                 m_Phase = Phase.Started;
                 m_Type = BlockType.If;
                 
-                EmitExpressionCheck(inExpression, ioCompiler);
+                EmitExpressionCheck(inPosition, inExpression, ioCompiler);
             }
 
             /// <summary>
@@ -110,7 +99,7 @@ namespace Leaf.Compiler
 
                 PointToEnd(ioCompiler);
                 Advance(ioCompiler);
-                EmitExpressionCheck(inExpression, ioCompiler);
+                EmitExpressionCheck(inPosition, inExpression, ioCompiler);
             }
 
             /// <summary>
@@ -173,7 +162,7 @@ namespace Leaf.Compiler
                 m_Type = BlockType.While;
                 m_StartPointer = ioCompiler.InstructionCount;
                 
-                EmitExpressionCheckBlock(inExpression, ioCompiler);
+                EmitExpressionCheckBlock(inPosition, inExpression, ioCompiler);
             }
 
             /// <summary>
@@ -256,16 +245,16 @@ namespace Leaf.Compiler
                 m_EndPointers.Clear();
             }
 
-            private void EmitExpressionCheck(StringSlice inExpression, LeafCompiler<TNode> ioCompiler)
+            private void EmitExpressionCheck(BlockFilePosition inPosition, StringSlice inExpression, LeafCompiler<TNode> ioCompiler)
             {
-                ioCompiler.EmitExpressionCall(inExpression);
+                ioCompiler.EmitExpressionCall(inPosition, inExpression);
                 ioCompiler.EmitInstruction(LeafOpcode.JumpIfFalse, -1);
                 m_NextPointer = ioCompiler.InstructionCount - 1;
             }
 
-            private void EmitExpressionCheckBlock(StringSlice inExpression, LeafCompiler<TNode> ioCompiler)
+            private void EmitExpressionCheckBlock(BlockFilePosition inPosition, StringSlice inExpression, LeafCompiler<TNode> ioCompiler)
             {
-                ioCompiler.EmitExpressionCall(inExpression);
+                ioCompiler.EmitExpressionCall(inPosition, inExpression);
                 ioCompiler.EmitInstruction(LeafOpcode.JumpIfFalse, -1);
                 m_ConditionalEndPointer = ioCompiler.InstructionCount - 1;
             }
@@ -320,13 +309,15 @@ namespace Leaf.Compiler
         #region Consts
 
         static private readonly CleanedParseRules ParseRules = new CleanedParseRules();
+        static private readonly char[] ContentTrimChars = new char[] { '\n', ' ', '\t', '\r' };
 
         #endregion // Consts
 
         private readonly List<LeafInstruction> m_EmittedInstructions = new List<LeafInstruction>(32);
         private readonly Dictionary<StringHash32, string> m_EmittedLines = new Dictionary<StringHash32, string>(32);
 
-        private readonly Dictionary<StringSlice, uint> m_ExpressionReuseMap = new Dictionary<StringSlice, uint>(32);
+        private readonly Dictionary<StringSlice, uint> m_ExpressionEvalReuseMap = new Dictionary<StringSlice, uint>(32);
+        private readonly Dictionary<StringSlice, uint> m_ExpressionAssignReuseMap = new Dictionary<StringSlice, uint>(32);
         private readonly Dictionary<StringSlice, InvocationCache> m_InvocationReuseMap = new Dictionary<StringSlice, InvocationCache>(32);
 
         private readonly List<ILeafExpression<TNode>> m_EmittedExpressions = new List<ILeafExpression<TNode>>(32);
@@ -394,6 +385,14 @@ namespace Leaf.Compiler
         }
 
         /// <summary>
+        /// Prepares to start compiling node content.
+        /// </summary>
+        public void StartNodeContent(BlockFilePosition inStartPosition)
+        {
+            m_CurrentNodeLineOffset = -(int) inStartPosition.LineNumber;
+        }
+
+        /// <summary>
         /// Flushes the currently compiled instructions to the given node.
         /// </summary>
         public void FinishNode(TNode ioNode, BlockFilePosition inPosition)
@@ -454,7 +453,8 @@ namespace Leaf.Compiler
             m_EmittedExpressions.Clear();
             m_EmittedInstructions.Clear();
 
-            m_ExpressionReuseMap.Clear();
+            m_ExpressionEvalReuseMap.Clear();
+            m_ExpressionAssignReuseMap.Clear();
             m_InvocationReuseMap.Clear();
         }
 
@@ -467,7 +467,8 @@ namespace Leaf.Compiler
             m_EmittedLines.Clear();
             m_EmittedExpressions.Clear();
             m_EmittedInvocations.Clear();
-            m_ExpressionReuseMap.Clear();
+            m_ExpressionEvalReuseMap.Clear();
+            m_ExpressionAssignReuseMap.Clear();
             m_InvocationReuseMap.Clear();
 
             m_CurrentNodeId = null;
@@ -490,9 +491,6 @@ namespace Leaf.Compiler
             if (m_EmittedInstructions.Count == 0)
                 inLine = beginningTrimmed;
 
-            if (inLine.IsEmpty)
-                return;
-
             if (TryProcessCommand(inFilePosition, beginningTrimmed))
                 return;
 
@@ -501,7 +499,7 @@ namespace Leaf.Compiler
 
         private bool TryProcessCommand(BlockFilePosition inPosition, StringSlice inLine)
         {
-            if (!inLine.StartsWith('$'))
+            if (inLine.IsEmpty || !inLine.StartsWith('$'))
                 return false;
 
             inLine = inLine.Substring(1);
@@ -605,7 +603,7 @@ namespace Leaf.Compiler
                     throw new SyntaxException(inPosition, "set must be provided an expression");
 
                 FlushContent();
-                EmitExpressionSet(data.Data);
+                EmitExpressionSet(inPosition, data.Data);
                 return true;
             }
 
@@ -706,7 +704,7 @@ namespace Leaf.Compiler
 
             if (!expression.IsEmpty)
             {
-                EmitExpressionCall(expression);
+                EmitExpressionCall(inPosition, expression);
                 EmitInstruction(LeafOpcode.JumpIfFalse, 2);
             }
 
@@ -716,7 +714,7 @@ namespace Leaf.Compiler
             StringSlice nodeExp;
             if (IsIndirect(nodeId, out nodeExp))
             {
-                EmitExpressionCall(nodeExp);
+                EmitExpressionCall(inPosition, nodeExp);
                 EmitInstruction(inIndirect);
             }
             else
@@ -734,7 +732,7 @@ namespace Leaf.Compiler
         {
             if (!inData.Data.IsEmpty)
             {
-                EmitExpressionCall(inData.Data);
+                EmitExpressionCall(inPosition, inData.Data);
                 EmitInstruction(LeafOpcode.JumpIfFalse, 2);
             }
 
@@ -765,7 +763,7 @@ namespace Leaf.Compiler
             StringSlice nodeExp;
             if (IsIndirect(nodeId, out nodeExp))
             {
-                EmitExpressionCall(nodeExp);
+                EmitExpressionCall(inPosition, nodeExp);
             }
             else
             {
@@ -784,7 +782,7 @@ namespace Leaf.Compiler
             // push bool
             if (!expression.IsEmpty)
             {
-                EmitExpressionCall(expression);
+                EmitExpressionCall(inPosition, expression);
             }
             else
             {
@@ -815,7 +813,7 @@ namespace Leaf.Compiler
                 if (IsIndirect(targetSlice, out indirectTarget))
                 {
                     target = indirectTarget;
-                    expressionTarget = EmitExpression(indirectTarget);
+                    expressionTarget = EmitExpression(inPosition, indirectTarget, LeafExpressionType.Evaluate);
                 }
                 else
                 {
@@ -901,27 +899,37 @@ namespace Leaf.Compiler
             return key;
         }
 
-        private uint EmitExpression(StringSlice inExpression)
+        private uint EmitExpression(BlockFilePosition inPosition, StringSlice inExpression, LeafExpressionType inType)
         {
             uint key;
-            if (!m_ExpressionReuseMap.TryGetValue(inExpression, out key))
+            var reuseMap = inType == LeafExpressionType.Evaluate ? m_ExpressionEvalReuseMap : m_ExpressionAssignReuseMap;
+            if (!reuseMap.TryGetValue(inExpression, out key))
             {
                 key = (uint) m_EmittedExpressions.Count;
-                m_EmittedExpressions.Add(m_Plugin.CompileExpression(inExpression));
-                m_ExpressionReuseMap.Add(inExpression, key);
+                ILeafExpression<TNode> expression;
+                try
+                {
+                    expression = m_Plugin.CompileExpression(inExpression, inType);
+                }
+                catch
+                {
+                    throw new SyntaxException(inPosition, "Expression string '{0}' cannot be parsed into an {1} expression", inType);
+                }
+                m_EmittedExpressions.Add(expression);
+                reuseMap.Add(inExpression, key);
             }
             return key;
         }
 
-        private void EmitExpressionCall(StringSlice inExpression)
+        private void EmitExpressionCall(BlockFilePosition inPosition, StringSlice inExpression)
         {
-            uint key = EmitExpression(inExpression);
+            uint key = EmitExpression(inPosition, inExpression, LeafExpressionType.Evaluate);
             EmitInstruction(LeafOpcode.EvaluateExpression, key);
         }
 
-        private void EmitExpressionSet(StringSlice inExpression)
+        private void EmitExpressionSet(BlockFilePosition inPosition, StringSlice inExpression)
         {
-            uint key = EmitExpression(inExpression);
+            uint key = EmitExpression(inPosition, inExpression, LeafExpressionType.Assign);
             EmitInstruction(LeafOpcode.SetFromExpression, key);
         }
 
@@ -931,29 +939,45 @@ namespace Leaf.Compiler
 
         private void ProcessContent(BlockFilePosition inPosition, StringSlice inLine)
         {
-            if (!m_Plugin.CollapseContent)
+            if (m_Plugin.CollapseContent)
             {
-                StringHash32 lineCode = EmitLine(inPosition, inLine);
-                EmitInstruction(LeafOpcode.RunLine, lineCode);
+                AccumulateContent(inPosition, inLine);
                 return;
             }
 
-            if (m_ContentBuilder.Length > 0)
+            if (inLine.EndsWith('\\'))
             {
-                m_ContentBuilder.Append('\n');
+                inLine = inLine.Substring(0, inLine.Length - 1);
+                AccumulateContent(inPosition, inLine);
+            }
+            else if (m_ContentBuilder.Length > 0)
+            {
+                AccumulateContent(inPosition, inLine);
+                FlushContent();
             }
             else
             {
+                StringHash32 lineCode = EmitLine(inPosition, inLine);
+                EmitInstruction(LeafOpcode.RunLine, lineCode);
+            }
+        }
+
+        private void AccumulateContent(BlockFilePosition inPosition, StringSlice inLine)
+        {
+            if (m_ContentBuilder.Length == 0)
+            {
                 m_ContentStartPosition = inPosition;
             }
-
+            
             inLine.AppendTo(m_ContentBuilder);
+            m_ContentBuilder.Append('\n');
         }
 
         private void FlushContent()
         {
             if (m_ContentBuilder.Length > 0)
             {
+                m_ContentBuilder.TrimEnd(ContentTrimChars);
                 string text = m_ContentBuilder.Flush();
                 
                 StringHash32 lineCode = EmitLine(m_ContentStartPosition, text);

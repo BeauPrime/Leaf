@@ -26,7 +26,7 @@ namespace Leaf.Defaults
         /// <summary>
         /// Types out a portion of the given line.
         /// </summary>
-        IEnumerator TypeLine(TagString inString, TagTextData inType);
+        IEnumerator TypeLine(TagString inSourceString, TagTextData inType);
         
         /// <summary>
         /// Completes the current line.

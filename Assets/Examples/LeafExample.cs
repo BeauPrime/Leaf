@@ -6,6 +6,7 @@ using Leaf.Runtime;
 using UnityEngine;
 using BeauUtil.Variants;
 using BeauRoutine;
+using BeauUtil.Debugger;
 
 namespace Leaf.Examples
 {
@@ -15,6 +16,7 @@ namespace Leaf.Examples
 
         public DialogBox DialogBox;
         public LeafAsset File;
+        public LeafExampleActor Actor;
 
         #endregion // Inspector
 
@@ -35,7 +37,11 @@ namespace Leaf.Examples
                 return;
             }
 
-            m_Manager.Run(startNode);
+            LeafNode anotherNode;
+            package.TryGetNode("MoveLoop", out anotherNode);
+
+            m_Manager.Run(startNode, null);
+            m_Manager.Run(anotherNode, Actor);
         }
         
         private void BuildTagParser()
@@ -61,6 +67,8 @@ namespace Leaf.Examples
 
         private class Parser : LeafParser<LeafNode, LeafNodePackage<LeafNode>>
         {
+            public override bool IsVerbose { get { return true; } }
+
             public override LeafNodePackage<LeafNode> CreatePackage(string inFileName)
             {
                 return new LeafNodePackage<LeafNode>(inFileName);
@@ -70,6 +78,18 @@ namespace Leaf.Examples
             {
                 return new LeafNode(inFullId, inPackage);
             }
+        }
+
+        [LeafMember("DumpThreadState")]
+        static private void DumpThreadState([BindContext] LeafThreadState<LeafNode> inThread)
+        {
+            Log.Msg("thread name: '{0}'", inThread.Name);
+        }
+
+        [LeafMember("DumpActorState")]
+        static private void DumpActorState(ILeafActor inActor, string inPrefix)
+        {
+            Log.Msg("{0}: '{1}'", inPrefix, inActor);
         }
     }
 }

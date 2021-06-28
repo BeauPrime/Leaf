@@ -10,6 +10,7 @@
 using System;
 using System.Collections;
 using BeauUtil;
+using BeauUtil.Debugger;
 using Leaf.Runtime;
 
 namespace Leaf.Defaults
@@ -36,15 +37,15 @@ namespace Leaf.Defaults
             object result;
             if (inTarget == null)
             {
-                bSuccess = cache.TryStaticInvoke(m_MethodId, m_Arguments, out result);
+                bSuccess = cache.TryStaticInvoke(m_MethodId, m_Arguments, inThreadState, out result);
             }
             else
             {
-                bSuccess = cache.TryInvoke(inTarget, m_MethodId, m_Arguments, out result);
+                bSuccess = cache.TryInvoke(inTarget, m_MethodId, m_Arguments, inThreadState, out result);
             }
 
             if (!bSuccess)
-                UnityEngine.Debug.LogErrorFormat("[DefaultLeafInvocation] Unable to execute method '{0}' with args '{1}'", m_MethodId, m_Arguments);
+                Log.Error("[DefaultLeafInvocation] Unable to execute method '{0}' with args '{1}'", m_MethodId, m_Arguments);
 
             return result as IEnumerator;
         }

@@ -17,6 +17,15 @@ namespace Leaf.Runtime
         where TNode : LeafNode
     {
         Variant Evaluate(LeafThreadState<TNode> inThreadState, ILeafPlugin<TNode> inPlugin);
-        void Set(LeafThreadState<TNode> inThreadState, ILeafPlugin<TNode> inPlugin);
+        void Assign(LeafThreadState<TNode> inThreadState, ILeafPlugin<TNode> inPlugin);
+    }
+
+    /// <summary>
+    /// Expression type.
+    /// </summary>
+    public enum LeafExpressionType : byte
+    {
+        Evaluate,
+        Assign
     }
 }

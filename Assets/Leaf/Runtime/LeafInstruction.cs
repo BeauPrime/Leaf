@@ -12,6 +12,8 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 using BeauUtil.Variants;
+using BeauUtil;
+using System;
 
 namespace Leaf.Runtime
 {
@@ -19,15 +21,19 @@ namespace Leaf.Runtime
     /// Leaf operation.
     /// </summary>
     [DebuggerDisplay("{ToDebugString()}")]
+    [Serializable]
     [StructLayout(LayoutKind.Explicit, Size=8)]
-    public struct LeafInstruction
+    public struct LeafInstruction : IDebugString
+        #if USING_BEAUDATA
+        , BeauData.ISerializedProxy<ulong>
+        #endif // USING_BEAUDATA
     {
         [FieldOffset(0)] public ulong Data;
         
         // because there are three bytes of unused space in Variant, we can nest the ScriptOpcode in those bytes
         // this keeps LeafInstruction to only 8 bytes, great for x64
-        [FieldOffset(0)] internal Variant Arg;
-        [FieldOffset(1)] internal LeafOpcode Op;
+        [FieldOffset(0), NonSerialized] internal Variant Arg;
+        [FieldOffset(2), NonSerialized] internal LeafOpcode Op;
 
         public LeafInstruction(ulong inData)
         {
@@ -75,5 +81,23 @@ namespace Leaf.Runtime
             }
             return builder.ToString();
         }
+
+        #region ISerializedProxy
+
+        #if USING_BEAUDATA
+
+        public ulong GetProxyValue(BeauData.ISerializerContext unused)
+        {
+            return Data;
+        }
+
+        public void SetProxyValue(ulong inValue, BeauData.ISerializerContext unused)
+        {
+            Data = inValue;
+        }
+
+        #endif // USING_BEAUDATA
+
+        #endregion // ISerializedProxy
     }
 }
