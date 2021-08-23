@@ -913,7 +913,7 @@ namespace Leaf.Compiler
                 }
                 catch
                 {
-                    throw new SyntaxException(inPosition, "Expression string '{0}' cannot be parsed into an {1} expression", inType);
+                    throw new SyntaxException(inPosition, "Expression string '{0}' cannot be parsed into an {1} expression", inExpression, inType);
                 }
                 m_EmittedExpressions.Add(expression);
                 reuseMap.Add(inExpression, key);
