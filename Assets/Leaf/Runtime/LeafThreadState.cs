@@ -301,7 +301,12 @@ namespace Leaf.Runtime
         /// <summary>
         /// Attempts to look up an object from the given id.
         /// </summary>
-        public abstract bool TryLookupObject(StringHash32 inId, out object outObject);
+        internal abstract bool TryLookupObject(StringHash32 inId, out object outObject);
+
+        /// <summary>
+        /// Attempts to resolve the given operand.
+        /// </summary>
+        internal abstract bool TryResolveOperand(VariantOperand inOperand, out Variant outValue);
 
         #endregion // Lookups
 
@@ -331,7 +336,6 @@ namespace Leaf.Runtime
             m_ChoiceBuffer.Reset();
             m_Children.Clear();
             m_ChoiceBuffer.Reset();
-            Resolver.Clear();
             m_Locals.Clear();
             m_Name = null;
             m_QueuedDelay = 0;
@@ -477,7 +481,7 @@ namespace Leaf.Runtime
 
         #region Lookups
 
-        public override bool TryLookupObject(StringHash32 inId, out object outObject)
+        internal override bool TryLookupObject(StringHash32 inId, out object outObject)
         {
             if (inId.IsEmpty)
             {
@@ -498,6 +502,14 @@ namespace Leaf.Runtime
             }
 
             return m_Plugin.TryLookupObject(inId, this, out outObject);
+        }
+
+        /// <summary>
+        /// Attempts to resolve the given operand.
+        /// </summary>
+        internal override bool TryResolveOperand(VariantOperand inOperand, out Variant outValue)
+        {
+            return inOperand.TryResolve(Resolver, this, out outValue, m_Plugin.MethodCache);
         }
 
         #endregion // Lookups

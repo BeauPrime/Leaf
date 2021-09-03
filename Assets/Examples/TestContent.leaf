@@ -15,7 +15,7 @@ $set someVarSet = true
 
 $set local:someVar = 0
 $while local:someVar < 5
-	{@me} Testing {var local:someVar}...
+	{@me} Testing {$local:someVar}...
 	$set local:someVar + 1
 $endwhile
 

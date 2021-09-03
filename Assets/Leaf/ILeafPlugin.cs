@@ -14,7 +14,12 @@ using Leaf.Runtime;
 
 namespace Leaf
 {
-    public interface ILeafPlugin<TNode> : ILeafVariableAccess
+    public interface ILeafPlugin : ILeafVariableAccess
+    {
+        IMethodCache MethodCache { get; }
+    }
+
+    public interface ILeafPlugin<TNode> : ILeafPlugin
         where TNode : LeafNode
     {
         void OnNodeEnter(TNode inNode, LeafThreadState<TNode> inThreadState);
@@ -28,9 +33,7 @@ namespace Leaf
 
         IEnumerator RunLine(LeafThreadState<TNode> inThreadState, StringSlice inLine, ILeafContentResolver inContentResolver);
         IEnumerator ShowOptions(LeafThreadState<TNode> inThreadState, LeafChoice inChoice, ILeafContentResolver inContentResolver);
-
-        IMethodCache MethodCache { get; }
-
+        
         LeafThreadState<TNode> Fork(LeafThreadState<TNode> inParentThreadState, TNode inForkNode);
     }
 }

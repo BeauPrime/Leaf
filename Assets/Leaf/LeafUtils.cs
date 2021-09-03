@@ -12,6 +12,8 @@ using System.Collections;
 using System.Text;
 using BeauRoutine;
 using BeauUtil;
+using BeauUtil.Debugger;
+using BeauUtil.Tags;
 using BeauUtil.Variants;
 using Leaf.Runtime;
 using UnityEngine;
@@ -108,5 +110,166 @@ namespace Leaf
         }
 
         #endregion // Default Leaf Members
+
+        #region Default Parsing Configs
+
+        private struct DefaultParseContext
+        {
+            public readonly ILeafPlugin Plugin;
+            public readonly LocalizeDelegate Localize;
+
+            internal DefaultParseContext(ILeafPlugin inPlugin, LocalizeDelegate inLocalize)
+            {
+                Plugin = inPlugin;
+                Localize = inLocalize;
+            }
+        }
+
+        /// <summary>
+        /// Delegate for performing localization.
+        /// </summary>
+        public delegate string LocalizeDelegate(StringHash32 inHash, object inContext);
+
+        /// <summary>
+        /// Configures default parsers.
+        /// </summary>
+        static public void ConfigureDefaultParsers(CustomTagParserConfig inConfig, ILeafPlugin inPlugin, LocalizeDelegate inLocalizationDelegate)
+        {
+            DefaultParseContext parseContext = new DefaultParseContext(inPlugin, inLocalizationDelegate);
+
+            inConfig.AddReplace("$*", (t, o) => ReplaceOperandPlugin(t, o, parseContext));
+            inConfig.AddReplace("loc ", (t, o) => ReplaceLocPlugin(t, o, parseContext));
+        }
+
+        /// <summary>
+        /// Configures default handlers
+        /// </summary>
+        static public void ConfigureDefaultHandlers(TagStringEventHandler inHandler, ILeafPlugin inPlugin)
+        {
+            
+        }
+
+        static private string ReplaceOperandPlugin(StringSlice inSource, object inContext, DefaultParseContext inParseContext)
+        {
+            StringSlice data = inSource.Substring(1);
+            StringSlice type = null; // TODO: Determine formatting specifiers
+            int formatSpecifierIdx = data.IndexOf('|');
+            if (formatSpecifierIdx >= 0)
+            {
+                type = data.Substring(formatSpecifierIdx + 1).Trim();
+                data = data.Substring(0, formatSpecifierIdx).TrimEnd();
+            }
+
+            VariantOperand operand;
+            if (!VariantOperand.TryParse(data, out operand))
+            {
+                Log.Error("[LeafUtils] Unable to parse operand '{0}' to operand", data);
+                return GetDisplayedErrorString(inSource);
+            }
+
+            Variant value = Variant.Null;
+            IVariantTable table = inContext as IVariantTable;
+            LeafThreadState thread = inContext as LeafThreadState;
+            IVariantResolver resolver = (inContext as IVariantResolver) ?? thread?.Resolver ?? inParseContext.Plugin.Resolver;
+
+            switch(operand.Type)
+            {
+                case VariantOperand.Mode.Variant:
+                    {
+                        value = operand.Value;
+                        break;
+                    }
+
+                case VariantOperand.Mode.TableKey:
+                    {
+                        TableKeyPair keyPair = operand.TableKey;
+                        bool bFound = false;
+                        if (table != null && (keyPair.TableId.IsEmpty || keyPair.TableId == table.Name))
+                        {
+                            bFound = table.TryLookup(keyPair.VariableId, out value);
+                        }
+
+                        if (!bFound)
+                        {
+                            bFound = resolver.TryGetVariant(inContext, keyPair, out value);
+                        }
+                        break;
+                    }
+
+                case VariantOperand.Mode.Method:
+                    {
+                        object rawObj;
+                        if (!inParseContext.Plugin.MethodCache.TryStaticInvoke(operand.MethodCall, inContext, out rawObj))
+                        {
+                            Log.Error("[LeafUtils] Unable to execute {0} in inline method call '{1}'", operand.MethodCall, inSource);
+                            return GetDisplayedErrorString(inSource);
+                        }
+
+                        if (!Variant.TryConvertFrom(rawObj, out value))
+                        {
+                            Log.Error("[LeafUtils] Unable to convert result of {0} ({1}) to Variant in inline method call '{2}'", operand.MethodCall, rawObj, inSource);
+                            return GetDisplayedErrorString(inSource);
+                        }
+                        break;
+                    }
+
+                default:
+                    throw new IndexOutOfRangeException("Unknown VariantOperand type " + operand.Type);
+            }
+            
+            if (type == "i" || type == "int")
+            {
+                return value.AsInt().ToString();
+            }
+            else if (type == "f" || type == "float")
+            {
+                return value.AsFloat().ToString();
+            }
+            else if (type == "b" || type == "bool")
+            {
+                return value.AsBool().ToString();
+            }
+            else if (type == "loc")
+            {
+                if (inParseContext.Localize != null)
+                {
+                    return inParseContext.Localize(value.AsStringHash(), inContext);
+                }
+                else
+                {
+                    Log.Error("[LeafUtils] 'loc' argument provided to inline leaf operand '{0}', but no localization callback was provided", inSource);
+                    return GetDisplayedErrorString(inSource);
+                }
+            }
+            else
+            {
+                return value.ToString();
+            }
+        }
+
+        static private string ReplaceLocPlugin(TagData inTag, object inContext, DefaultParseContext inParseContext)
+        {
+            if (inParseContext.Localize != null)
+            {
+                return inParseContext.Localize(inTag.Data, inContext);
+            }
+            else
+            {
+                Log.Error("[LeafUtils] 'loc' argument provided to inline leaf operand '{0}', but no localization callback was provided", inTag);
+                return GetDisplayedErrorString(inTag);
+            }
+        }
+
+        static private string GetDisplayedErrorString(StringSlice inData)
+        {
+            return string.Format("<color=red>ERROR: {0}</color>", inData.ToString());
+        }
+
+        static private string GetDisplayedErrorString(TagData inData)
+        {
+            return string.Format("<color=red>ERROR: {0}</color>", inData.ToString());
+        }
+
+        #endregion // Default Parsing Configs
     }
 }
