@@ -1,103 +1,510 @@
 /*
- * Copyright (C) 2020. Autumn Beauchesne. All rights reserved.
+ * Copyright (C) 2021. Autumn Beauchesne. All rights reserved.
  * Author:  Autumn Beauchesne
- * Date:    24 Oct 2020
+ * Date:    31 Oct 2021
  * 
  * File:    LeafInstruction.cs
- * Purpose: Pairing of opcode and optional argument.
+ * Purpose: Leaf instruction stream utilities.
  */
 
-using System.Diagnostics;
-using System.Collections.Generic;
-using System.Runtime.InteropServices;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#define DEVELOPMENT
+#endif // UNITY_EDITOR || DEVELOPMENT_BUILD
+
 using System.Text;
-using BeauUtil.Variants;
 using BeauUtil;
-using System;
+using BeauUtil.Variants;
 
 namespace Leaf.Runtime
 {
     /// <summary>
-    /// Leaf operation.
+    /// Leaf instruction stream utilities.
     /// </summary>
-    [DebuggerDisplay("{ToDebugString()}")]
-    [Serializable]
-    [StructLayout(LayoutKind.Explicit, Size=8)]
-    public struct LeafInstruction : IDebugString
-        #if USING_BEAUDATA
-        , BeauData.ISerializedProxy<ulong>
-        #endif // USING_BEAUDATA
+    static internal unsafe class LeafInstruction
     {
-        [FieldOffset(0)] public ulong Data;
-        
-        // because there are three bytes of unused space in Variant, we can nest the ScriptOpcode in those bytes
-        // this keeps LeafInstruction to only 8 bytes, great for x64
-        [FieldOffset(0), NonSerialized] internal Variant Arg;
-        [FieldOffset(2), NonSerialized] internal LeafOpcode Op;
+        internal const uint EmptyIndex = uint.MaxValue;
 
-        public LeafInstruction(ulong inData)
+        #region Integrals
+
+        static internal uint WriteByte(RingBuffer<byte> ioBytes, byte inValue)
         {
-            Arg = default(Variant);
-            Op = default(LeafOpcode);
-            Data = inData;
+            ioBytes.PushBack(inValue);
+            return 1;
         }
 
-        internal LeafInstruction(LeafOpcode inOpcode, Variant inArg = default(Variant))
+        static internal void OverwriteByte(RingBuffer<byte> ioBytes, int inOffset, byte inValue)
         {
-            Data = 0;
-            Arg = inArg;
-            Op = inOpcode;
+            ioBytes[inOffset] = inValue;
         }
 
-        internal void SetArg(Variant inArgument)
+        static internal byte ReadByte(byte[] inBytes, ref uint ioProgramCounter)
         {
-            LeafOpcode opcode = Op;
-            Arg = inArgument;
-            Op = opcode;
+            return inBytes[ioProgramCounter++];
         }
 
-        public override string ToString()
+        static internal uint WriteUInt32(RingBuffer<byte> ioBytes, uint inValue)
         {
-            if (Arg.Type == VariantType.Null && Op != LeafOpcode.PushValue)
-                return Op.ToString();
-            return string.Format("{0}: {1}", Op, Arg);
+            ioBytes.PushBack((byte) inValue);
+            ioBytes.PushBack((byte) (inValue >> 8));
+            ioBytes.PushBack((byte) (inValue >> 16));
+            ioBytes.PushBack((byte) (inValue >> 24));
+            return 4;
         }
 
-        public string ToDebugString()
+        static internal void OverwriteUInt32(RingBuffer<byte> ioBytes, int inOffset, uint inValue)
         {
-            if (Arg.Type == VariantType.Null && Op != LeafOpcode.PushValue)
-                return Op.ToString();
-            return string.Format("{0}: {1}", Op, Arg.ToDebugString());
+            ioBytes[inOffset] = (byte) inValue;
+            ioBytes[inOffset + 1] = (byte) (inValue >> 8);
+            ioBytes[inOffset + 2] = (byte) (inValue >> 16);
+            ioBytes[inOffset + 3] = (byte) (inValue >> 24);
         }
 
-        static public string ToDebugString(IReadOnlyCollection<LeafInstruction> inInstructions)
+        static internal uint ReadUInt32(byte[] inBytes, ref uint ioProgramCounter)
         {
-            StringBuilder builder = new StringBuilder();
-            builder.Append(inInstructions.Count).Append(" instruction(s)");
-            int idx = 0;
-            foreach(var instruction in inInstructions)
+            return (uint) ReadInt32(inBytes, ref ioProgramCounter);
+        }
+
+        static internal uint WriteInt32(RingBuffer<byte> ioBytes, int inValue)
+        {
+            ioBytes.PushBack((byte) inValue);
+            ioBytes.PushBack((byte) (inValue >> 8));
+            ioBytes.PushBack((byte) (inValue >> 16));
+            ioBytes.PushBack((byte) (inValue >> 24));
+            return 4;
+        }
+
+        static internal void OverwriteInt32(RingBuffer<byte> ioBytes, int inOffset, int inValue)
+        {
+            ioBytes[inOffset] = (byte) inValue;
+            ioBytes[inOffset + 1] = (byte) (inValue >> 8);
+            ioBytes[inOffset + 2] = (byte) (inValue >> 16);
+            ioBytes[inOffset + 3] = (byte) (inValue >> 24);
+        }
+
+        static internal int ReadInt32(byte[] inBytes, ref uint ioProgramCounter)
+        {
+            fixed(byte* ptr = &inBytes[ioProgramCounter])
             {
-                builder.Append("\n[").Append(idx++).Append("] ").Append(instruction.ToDebugString());
+                ioProgramCounter += 4;
+                if (((uint) ptr % 4) == 0)
+                {
+                    return *(int*)(ptr);
+                }
+                else
+                {
+                    return ((*ptr) | (ptr[1] << 8) | (ptr[2] << 16) | (ptr[3] << 24));
+                }
             }
-            return builder.ToString();
         }
 
-        #region ISerializedProxy
-
-        #if USING_BEAUDATA
-
-        public ulong GetProxyValue(BeauData.ISerializerContext unused)
+        static internal uint WriteInt16(RingBuffer<byte> ioBytes, short inValue)
         {
-            return Data;
+            ioBytes.PushBack((byte) inValue);
+            ioBytes.PushBack((byte) (inValue >> 8));
+            return 2;
         }
 
-        public void SetProxyValue(ulong inValue, BeauData.ISerializerContext unused)
+        static internal void OverwriteInt16(RingBuffer<byte> ioBytes, int inOffset, short inValue)
         {
-            Data = inValue;
+            ioBytes[inOffset] = (byte) inValue;
+            ioBytes[inOffset + 1] = (byte) (inValue >> 8);
         }
 
-        #endif // USING_BEAUDATA
+        static internal short ReadInt16(byte[] inBytes, ref uint ioProgramCounter)
+        {
+            fixed(byte* ptr = &inBytes[ioProgramCounter])
+            {
+                ioProgramCounter += 2;
+                if (((uint) ptr % 2) == 0)
+                {
+                    return *(short*)(ptr);
+                }
+                else
+                {
+                    return (short) ((*ptr) | (ptr[1] << 8));
+                }
+            }
+        }
 
-        #endregion // ISerializedProxy
+        static internal uint WriteUInt16(RingBuffer<byte> ioBytes, ushort inValue)
+        {
+            ioBytes.PushBack((byte) inValue);
+            ioBytes.PushBack((byte) (inValue >> 8));
+            return 2;
+        }
+
+        static internal void OverwriteUInt16(RingBuffer<byte> ioBytes, int inOffset, ushort inValue)
+        {
+            ioBytes[inOffset] = (byte) inValue;
+            ioBytes[inOffset + 1] = (byte) (inValue >> 8);
+        }
+
+        static internal ushort ReadUInt16(byte[] inBytes, ref uint ioProgramCounter)
+        {
+            fixed(byte* ptr = &inBytes[ioProgramCounter])
+            {
+                ioProgramCounter += 2;
+                if (((uint) ptr % 2) == 0)
+                {
+                    return *(ushort*)(ptr);
+                }
+                else
+                {
+                    return (ushort) ((*ptr) | (ptr[1] << 8));
+                }
+            }
+        }
+
+        #endregion // Integrals
+
+        #region Leaf
+
+        static internal uint WriteOpcode(RingBuffer<byte> ioBytes, LeafOpcode inValue)
+        {
+            return WriteByte(ioBytes, (byte) inValue);
+        }
+
+        static internal void OverwriteOpcode(RingBuffer<byte> ioBytes, int inOffset, LeafOpcode inValue)
+        {
+            OverwriteByte(ioBytes, inOffset, (byte) inValue);
+        }
+
+        static internal LeafOpcode ReadOpcode(byte[] inBytes, ref uint ioProgramCounter)
+        {
+            return (LeafOpcode) ReadByte(inBytes, ref ioProgramCounter);
+        }
+
+        static internal uint WriteStringHash32(RingBuffer<byte> ioBytes, StringHash32 inValue)
+        {
+            return WriteUInt32(ioBytes, inValue.HashValue);
+        }
+
+        static internal void OverwriteStringHash32(RingBuffer<byte> ioBytes, int inOffset, StringHash32 inValue)
+        {
+            OverwriteUInt32(ioBytes, inOffset, inValue.HashValue);
+        }
+
+        static internal StringHash32 ReadStringHash32(byte[] inBytes, ref uint ioProgramCounter)
+        {
+            return new StringHash32(ReadUInt32(inBytes, ref ioProgramCounter));
+        }
+
+        static internal uint WriteTableKeyPair(RingBuffer<byte> ioBytes, TableKeyPair inValue)
+        {
+            WriteUInt32(ioBytes, inValue.TableId.HashValue);
+            WriteUInt32(ioBytes, inValue.VariableId.HashValue);
+            return 8;
+        }
+
+        static internal void OverwriteTableKeyPair(RingBuffer<byte> ioBytes, int inOffset, TableKeyPair inValue)
+        {
+            OverwriteUInt32(ioBytes, inOffset, inValue.TableId.HashValue);
+            OverwriteUInt32(ioBytes, inOffset + 4, inValue.VariableId.HashValue);
+        }
+
+        static internal TableKeyPair ReadTableKeyPair(byte[] inBytes, ref uint ioProgramCounter)
+        {
+            uint tableHash = ReadUInt32(inBytes, ref ioProgramCounter);
+            uint keyHash = ReadUInt32(inBytes, ref ioProgramCounter);
+            return new TableKeyPair(new StringHash32(tableHash), new StringHash32(keyHash));
+        }
+
+        static internal uint WriteVariant(RingBuffer<byte> ioBytes, Variant inValue)
+        {
+            WriteByte(ioBytes, (byte) inValue.Type);
+            WriteUInt32(ioBytes, Variant.ToRaw(inValue));
+            return 5;
+        }
+
+        static internal void OverwriteVariant(RingBuffer<byte> ioBytes, int inOffset, Variant inValue)
+        {
+            OverwriteByte(ioBytes, inOffset, (byte) inValue.Type);
+            OverwriteUInt32(ioBytes, inOffset + 1, Variant.ToRaw(inValue));
+        }
+
+        static internal Variant ReadVariant(byte[] inBytes, ref uint ioProgramCounter)
+        {
+            VariantType varType = (VariantType) ReadByte(inBytes, ref ioProgramCounter);
+            uint rawValue = ReadUInt32(inBytes, ref ioProgramCounter);
+            return Variant.FromRaw(varType, rawValue);
+        }
+
+        static internal string ReadStringTableString(byte[] inBytes, ref uint ioProgramCounter, string[] inTable)
+        {
+            uint index = ReadUInt32(inBytes, ref ioProgramCounter);
+            return index == EmptyIndex ? null : inTable[index];
+        } 
+
+        #endregion // Leaf
+
+        static internal void Disassemble(LeafInstructionBlock inBlock, StringBuilder ioBuilder)
+        {
+            Disassemble(inBlock, 0, (uint) inBlock.InstructionStream.Length, ioBuilder);
+        }
+
+        #if DEVELOPMENT
+
+        static internal void Disassemble(LeafInstructionBlock inBlock, uint inInstructionOffset, uint inInstructionLength, StringBuilder ioBuilder)
+        {
+            byte[] stream = inBlock.InstructionStream;
+            uint pc = inInstructionOffset;
+            uint end = pc + inInstructionLength;
+
+            ioBuilder.Append("Instructions ").Append(pc.ToString("X4")).Append(" - ").Append(end.ToString("X4"))
+                .Append(" (").Append(inInstructionLength).Append(" bytes)");
+
+            LeafOpcode op;
+            while(pc < end)
+            {
+                op = ReadOpcode(stream, ref pc);
+
+                ioBuilder.Append("\n[").Append(pc.ToString("X4")).Append("] ");
+                ioBuilder.Append(op.ToString());
+
+                switch(op)
+                {
+                    case LeafOpcode.RunLine:
+                        {
+                            StringHash32 lineCode = ReadStringHash32(stream, ref pc);
+                            ioBuilder.Append(' ').Append(lineCode.ToDebugString());
+                            break;
+                        }
+
+                    case LeafOpcode.EvaluateSingleExpression:
+                        {
+                            uint expressionIdx = ReadUInt32(stream, ref pc);
+                            ioBuilder.Append(" (");
+                            DisassembleExpression(inBlock, expressionIdx, ioBuilder);
+                            ioBuilder.Append(" )");
+                            break;
+                        }
+
+                    case LeafOpcode.EvaluateExpressionsAnd:
+                        {
+                            uint expressionOffset = ReadUInt32(stream, ref pc);
+                            ushort expressionCount = ReadUInt16(stream, ref pc);
+
+                            ioBuilder.Append(" (");
+                            for(ushort i = 0; i < expressionCount; i++)
+                            {
+                                if (i > 0)
+                                    ioBuilder.Append(" && ");
+                                DisassembleExpression(inBlock, expressionOffset + i, ioBuilder);
+                            }
+                            ioBuilder.Append(")");
+                            break;
+                        }
+
+                    case LeafOpcode.EvaluateExpressionsOr:
+                        {
+                            uint expressionOffset = ReadUInt32(stream, ref pc);
+                            ushort expressionCount = ReadUInt16(stream, ref pc);
+
+                            ioBuilder.Append(" (");
+                            for(ushort i = 0; i < expressionCount; i++)
+                            {
+                                if (i > 0)
+                                    ioBuilder.Append(" || ");
+                                DisassembleExpression(inBlock, expressionOffset + i, ioBuilder);
+                            }
+                            ioBuilder.Append(")");
+                            break;
+                        }
+
+                    case LeafOpcode.EvaluateExpressionsGroup:
+                        {
+                            // TODO: Implement
+                            break;
+                        }
+
+                    case LeafOpcode.Invoke:
+                    case LeafOpcode.InvokeWithTarget:
+                    case LeafOpcode.InvokeWithReturn:
+                        {
+                            MethodCall invocation;
+                            invocation.Id = ReadStringHash32(stream, ref pc);
+                            invocation.Args = ReadStringTableString(stream, ref pc, inBlock.StringTable);
+
+                            ioBuilder.Append(' ').Append(invocation.ToDebugString());
+                            break;
+                        }
+
+                    case LeafOpcode.PushValue:
+                        {
+                            Variant value = ReadVariant(stream, ref pc);
+                            ioBuilder.Append(' ').Append(value.ToDebugString());
+                            break;
+                        }
+
+                    case LeafOpcode.LoadTableValue:
+                    case LeafOpcode.StoreTableValue:
+                    case LeafOpcode.IncrementTableValue:
+                        {
+                            TableKeyPair keyPair = ReadTableKeyPair(stream, ref pc);
+                            ioBuilder.Append(' ').Append(keyPair.ToDebugString());
+                            break;
+                        }
+
+                    case LeafOpcode.Jump:
+                    case LeafOpcode.JumpIfFalse:
+                        {
+                            short jump = ReadInt16(stream, ref pc);
+                            ioBuilder.Append(' ').Append(jump.ToString("X4"));
+                            break;
+                        }
+
+                    case LeafOpcode.GotoNode:
+                    case LeafOpcode.BranchNode:
+                    case LeafOpcode.ForkNode:
+                    case LeafOpcode.ForkNodeUntracked:
+                        {
+                            StringHash32 nodeId = ReadStringHash32(stream, ref pc);
+                            ioBuilder.Append(' ').Append(nodeId.ToDebugString());
+                            break;
+                        }
+
+                    case LeafOpcode.AddChoiceOption:
+                        {
+                            StringHash32 textId = ReadStringHash32(stream, ref pc);
+                            LeafChoice.OptionFlags flags = (LeafChoice.OptionFlags) ReadByte(stream, ref pc);
+
+                            ioBuilder.Append(' ').Append(textId.ToDebugString()).Append(", ").Append(flags);
+                            break;
+                        }
+
+                    case LeafOpcode.AddChoiceAnswer:
+                        {
+                            StringHash32 answerId = ReadStringHash32(stream, ref pc);
+                            ioBuilder.Append(' ').Append(answerId.ToDebugString());
+                            break;
+                        }
+                }
+            }
+        }
+
+        static private void DisassembleExpression(LeafInstructionBlock inBlock, uint inExpressionIndex, StringBuilder ioBuilder)
+        {
+            LeafExpression expression = inBlock.ExpressionTable[inExpressionIndex];
+
+            switch(expression.Operator)
+            {
+                case VariantCompareOperator.True:
+                    {
+                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        break;
+                    }
+
+                case VariantCompareOperator.False:
+                    {
+                        ioBuilder.Append("!");
+                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        break;
+                    }
+
+                case VariantCompareOperator.LessThan:
+                    {
+                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        ioBuilder.Append(" < ");
+                        DisassembleExpressionOperand(inBlock, expression.Right, ioBuilder);
+                        break;
+                    }
+
+                case VariantCompareOperator.LessThanOrEqualTo:
+                    {
+                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        ioBuilder.Append(" <= ");
+                        DisassembleExpressionOperand(inBlock, expression.Right, ioBuilder);
+                        break;
+                    }
+
+                case VariantCompareOperator.EqualTo:
+                    {
+                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        ioBuilder.Append(" == ");
+                        DisassembleExpressionOperand(inBlock, expression.Right, ioBuilder);
+                        break;
+                    }
+
+                case VariantCompareOperator.NotEqualTo:
+                    {
+                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        ioBuilder.Append(" != ");
+                        DisassembleExpressionOperand(inBlock, expression.Right, ioBuilder);
+                        break;
+                    }
+
+                case VariantCompareOperator.GreaterThanOrEqualTo:
+                    {
+                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        ioBuilder.Append(" >= ");
+                        DisassembleExpressionOperand(inBlock, expression.Right, ioBuilder);
+                        break;
+                    }
+
+                case VariantCompareOperator.GreaterThan:
+                    {
+                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        ioBuilder.Append(" > ");
+                        DisassembleExpressionOperand(inBlock, expression.Right, ioBuilder);
+                        break;
+                    }
+
+                case VariantCompareOperator.Exists:
+                    {
+                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        ioBuilder.Append(" exists");
+                        break;
+                    }
+
+                case VariantCompareOperator.DoesNotExist:
+                    {
+                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        ioBuilder.Append(" does not exist");
+                        break;
+                    }
+            }
+        }
+
+        static private void DisassembleExpressionOperand(LeafInstructionBlock inBlock, LeafExpression.Operand inOperand, StringBuilder ioBuilder)
+        {
+            switch(inOperand.Type)
+            {
+                case LeafExpression.OperandType.Value:
+                    {
+                        ioBuilder.Append(inOperand.Data.Value.ToDebugString());
+                        break;
+                    }
+
+                case LeafExpression.OperandType.Read:
+                    {
+                        ioBuilder.Append(inOperand.Data.TableKey.ToDebugString());
+                        break;
+                    }
+
+                case LeafExpression.OperandType.Method:
+                    {
+                        MethodCall method;
+                        method.Id = inOperand.Data.MethodId;
+                        method.Args = inOperand.Data.MethodArgsIndex == EmptyIndex ? null : inBlock.StringTable[inOperand.Data.MethodArgsIndex];
+
+                        ioBuilder.Append(method.ToDebugString());
+                        break;
+                    }
+            }
+        }
+    
+        #else
+
+        static internal void Disassemble(LeafInstructionBlock inBlock, uint inInstructionOffset, uint inInstructionLength, StringBuilder ioBuilder)
+        {
+            uint pc = inInstructionOffset;
+            uint end = pc + inInstructionLength;
+
+            ioBuilder.Append("(Instructions )").Append(pc.ToString("X4")).Append(" - ").Append(end.ToString("X4"))
+                .Append(" (").Append(inInstructionLength).Append(" bytes)")
+                .Append("\n Disassembly unavailable in non-DEVELOPMENT builds");;
+        }
+
+        #endif // DEVELOPMENT
     }
 }

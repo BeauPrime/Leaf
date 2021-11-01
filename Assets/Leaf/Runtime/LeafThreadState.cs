@@ -7,6 +7,10 @@
  * Purpose: Execution stacks for evaluating leaf nodes.
  */
 
+#if CSHARP_7_3_OR_NEWER
+#define EXPANDED_REFS
+#endif // CSHARP_7_3_OR_NEWER
+
 using BeauUtil;
 using BeauUtil.Variants;
 using BeauUtil.Debugger;
@@ -27,6 +31,7 @@ namespace Leaf.Runtime
         private readonly LeafChoice m_ChoiceBuffer;
         private readonly VariantTable m_Locals;
         private readonly Action m_KillAction;
+        private readonly ILeafPlugin m_BasePlugin;
 
         internal uint m_Id;
         internal bool m_Running;
@@ -47,12 +52,13 @@ namespace Leaf.Runtime
         /// </summary>
         public readonly TagString TagString;
 
-        public LeafThreadState()
+        public LeafThreadState(ILeafPlugin inPlugin)
         {
             m_ValueStack = new RingBuffer<Variant>();
             m_ChoiceBuffer = new LeafChoice();
             m_Locals = new VariantTable(LeafUtils.LocalIdentifier);
             m_Children = new RingBuffer<LeafThreadHandle>();
+            m_BasePlugin = inPlugin;
 
             Resolver = new CustomVariantResolver();
             TagString = new TagString();
@@ -113,9 +119,17 @@ namespace Leaf.Runtime
         /// <summary>
         /// Adds an option to the choice buffer.
         /// </summary>
-        public void AddOption(Variant inTargetId, StringHash32 inLineCode, bool inbAvailable = true)
+        public void AddOption(Variant inTargetId, StringHash32 inLineCode, LeafChoice.OptionFlags inFlags = LeafChoice.OptionFlags.IsAvailable)
         {
-            m_ChoiceBuffer.AddOption(new LeafChoice.Option(inTargetId, inLineCode, inbAvailable));
+            m_ChoiceBuffer.AddOption(new LeafChoice.Option(inTargetId, inLineCode, inFlags));
+        }
+
+        /// <summary>
+        /// Adds an answer to the latest option to the choice buffer.
+        /// </summary>
+        public void AddOptionAnswer(Variant inAnswerId, Variant inTargetId)
+        {
+            m_ChoiceBuffer.AddAnswer(new LeafChoice.Answer(inAnswerId, inTargetId));
         }
 
         /// <summary>
@@ -301,12 +315,36 @@ namespace Leaf.Runtime
         /// <summary>
         /// Attempts to look up an object from the given id.
         /// </summary>
-        internal abstract bool TryLookupObject(StringHash32 inId, out object outObject);
+        internal bool TryLookupObject(StringHash32 inId, out object outObject)
+        {
+            if (inId.IsEmpty)
+            {
+                outObject = null;
+                return true;
+            }
+
+            if (inId == LeafUtils.ThisIdentifier)
+            {
+                outObject = Actor;
+                return true;
+            }
+
+            if (inId == LeafUtils.ThreadIdentifier)
+            {
+                outObject = this;
+                return true;
+            }
+
+            return m_BasePlugin.TryLookupObject(inId, this, out outObject);
+        }
 
         /// <summary>
         /// Attempts to resolve the given operand.
         /// </summary>
-        internal abstract bool TryResolveOperand(VariantOperand inOperand, out Variant outValue);
+        internal bool TryResolveOperand(VariantOperand inOperand, out Variant outValue)
+        { 
+            return inOperand.TryResolve(Resolver, this, out outValue, m_BasePlugin.MethodCache);
+        }
 
         #endregion // Lookups
 
@@ -359,12 +397,12 @@ namespace Leaf.Runtime
         private struct Frame
         {
             public TNode Node;
-            public int ProgramCounter;
+            public uint ProgramCounter;
 
             public Frame(TNode inNode)
             {
                 Node = inNode;
-                ProgramCounter = -1;
+                ProgramCounter = inNode.m_InstructionOffset;
             }
         }
 
@@ -374,6 +412,7 @@ namespace Leaf.Runtime
         private ILeafPlugin<TNode> m_Plugin;
 
         public LeafThreadState(ILeafPlugin<TNode> inPlugin)
+            : base(inPlugin)
         {
             if (inPlugin == null)
                 throw new ArgumentNullException("inPlugin");
@@ -387,26 +426,41 @@ namespace Leaf.Runtime
 
         #region Program Counters
 
-        internal void AdvanceState(out TNode outNode, out int outProgramCounter)
+        internal void ReadState(out TNode outNode, out uint outProgramCounter)
         {
-            ref Frame currentFrame = ref m_FrameStack[0];
+            Frame currentFrame = m_FrameStack[0];
             outNode = currentFrame.Node;
-            outProgramCounter = ++currentFrame.ProgramCounter;
+            outProgramCounter = currentFrame.ProgramCounter;
+        }
+
+        internal void WriteProgramCounter(uint inProgramCounter)
+        {
+            #if EXPANDED_REFS
+            ref Frame currentFrame = ref m_FrameStack[0];
+            #else
+            Frame currentFrame = m_FrameStack[0];
+            #endif // EXPANDED_REFS
+
+            currentFrame.ProgramCounter = inProgramCounter;
+
+            #if !EXPANDED_REFS
+            m_FrameStack[0] = currentFrame;
+            #endif // !EXPANDED_REFS
         }
 
         internal void JumpRelative(int inJump)
         {
-            m_FrameStack[0].ProgramCounter += (inJump - 1);
+            m_FrameStack[0].ProgramCounter = (uint) (m_FrameStack[0].ProgramCounter + inJump);
         }
 
-        internal void JumpAbsolute(int inIndex)
+        internal void JumpAbsolute(uint inIndex)
         {
-            m_FrameStack[0].ProgramCounter = inIndex - 1;
+            m_FrameStack[0].ProgramCounter = inIndex;
         }
 
         internal void ResetProgramCounter()
         {
-            m_FrameStack[0].ProgramCounter = -1;
+            m_FrameStack[0].ProgramCounter = m_FrameStack[0].Node.m_InstructionOffset;
         }
 
         #endregion // Program Counters
@@ -478,41 +532,6 @@ namespace Leaf.Runtime
         #endregion // Node Stack
 
         #endregion // Internal State
-
-        #region Lookups
-
-        internal override bool TryLookupObject(StringHash32 inId, out object outObject)
-        {
-            if (inId.IsEmpty)
-            {
-                outObject = null;
-                return true;
-            }
-
-            if (inId == LeafUtils.ThisIdentifier)
-            {
-                outObject = Actor;
-                return true;
-            }
-
-            if (inId == LeafUtils.ThreadIdentifier)
-            {
-                outObject = this;
-                return true;
-            }
-
-            return m_Plugin.TryLookupObject(inId, this, out outObject);
-        }
-
-        /// <summary>
-        /// Attempts to resolve the given operand.
-        /// </summary>
-        internal override bool TryResolveOperand(VariantOperand inOperand, out Variant outValue)
-        {
-            return inOperand.TryResolve(Resolver, this, out outValue, m_Plugin.MethodCache);
-        }
-
-        #endregion // Lookups
 
         #region Cleanup
 

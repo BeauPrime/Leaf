@@ -19,22 +19,24 @@ namespace Leaf
     public class LeafNode : IDataBlock
     {
         protected StringHash32 m_Id;
-        protected ILeafModule m_Module;
-        protected LeafInstruction[] m_Instructions;
+        protected LeafNodePackage m_Package;
+        
+        internal uint m_InstructionOffset;
+        internal uint m_InstructionCount;
 
         public StringHash32 Id() { return m_Id; }
-        public LeafInstruction[] Instructions() { return m_Instructions; }
-        public ILeafModule Module() { return m_Module; }
+        public LeafNodePackage Package() { return m_Package; }
 
-        public LeafNode(StringHash32 inId, ILeafModule inModule)
+        public LeafNode(StringHash32 inId, LeafNodePackage inPackage)
         {
             m_Id = inId;
-            m_Module = inModule;
+            m_Package = inPackage;
         }
 
-        internal void SetInstructions(LeafInstruction[] inInstructions)
+        internal void SetInstructionOffsets(uint inOffset, uint inCount)
         {
-            m_Instructions = inInstructions;
+            m_InstructionOffset = inOffset;
+            m_InstructionCount = inCount;
         }
     }
 }

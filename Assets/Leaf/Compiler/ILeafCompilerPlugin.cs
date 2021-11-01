@@ -7,21 +7,14 @@
  * Purpose: Plugin interface for the LeafCompiler.
  */
 
-using BeauUtil;
-using Leaf.Runtime;
-
 namespace Leaf.Compiler
 {
     /// <summary>
     /// Plugin for the compiler.
     /// </summary>
-    public interface ILeafCompilerPlugin<TNode>
-        where TNode : LeafNode
+    public interface ILeafCompilerPlugin
     {
         char PathSeparator { get; }
         bool CollapseContent { get; }
-        
-        ILeafExpression<TNode> CompileExpression(StringSlice inExpression, LeafExpressionType inType);
-        ILeafInvocation<TNode> CompileInvocation(StringSlice inMethod, StringSlice inArguments);
     }
 }

@@ -17,58 +17,98 @@ using Leaf.Runtime;
 
 namespace Leaf
 {
-    public class LeafNodePackage<TNode> : IDataBlockPackage<TNode>, ILeafModule
-        where TNode : LeafNode
+    public abstract class LeafNodePackage : IDataBlockPackage<LeafNode>
     {
-        // vars
+        public string Name() { return m_Name; }
+        public string RootPath() { return m_RootPath; }
 
         protected string m_Name;
-        [BlockMeta("basePath")] protected string m_RootPath = string.Empty;
+        [BlockMeta("basePath"), UnityEngine.Scripting.Preserve] protected string m_RootPath = string.Empty;
 
-        // temp storage
-        internal LeafCompiler<TNode> m_Compiler;
-
-        // storage
-
-        protected readonly Dictionary<StringHash32, TNode> m_Nodes = new Dictionary<StringHash32, TNode>(32);
         protected readonly Dictionary<StringHash32, string> m_LineTable = new Dictionary<StringHash32, string>(32);
-        protected ILeafExpression<TNode>[] m_ExpressionTable = Array.Empty<ILeafExpression<TNode>>();
-        protected ILeafInvocation<TNode>[] m_InvocationTable = Array.Empty<ILeafInvocation<TNode>>();
+        protected internal LeafInstructionBlock m_Instructions;
+        
+        internal LeafCompiler m_Compiler;
+
+        internal void SetLines(Dictionary<StringHash32, string> inLineTable)
+        {
+            m_LineTable.Clear();
+            foreach(var kv in inLineTable)
+            {
+                m_LineTable.Add(kv.Key, kv.Value);
+            }
+        }
+
+        /// <summary>
+        /// Attempts to retrieve the line with the specific line code in this package.
+        /// </summary>
+        public bool TryGetLine(StringHash32 inLineCode, out string outLine)
+        {
+            return m_LineTable.TryGetValue(inLineCode, out outLine);
+        }
+
+        /// <summary>
+        /// Returns all lines embedded in this package.
+        /// </summary>
+        public IEnumerable<KeyValuePair<StringHash32, string>> AllLines()
+        {
+            return m_LineTable;
+        }
+
+        /// <summary>
+        /// Attempts to retrieve the node with the specific id in this package.
+        /// </summary>
+        public abstract bool TryGetNode(StringHash32 inNodeId, out LeafNode outNode);
+
+        /// <summary>
+        /// Clears this package.
+        /// </summary>
+        public virtual void Clear()
+        {
+            m_LineTable.Clear();
+            m_Instructions = default(LeafInstructionBlock);
+        }
+
+        #region IDataBlockPackage
+
+        public abstract int Count { get; }
+        public abstract IEnumerator<LeafNode> GetEnumerator();
+
+        IEnumerator IEnumerable.GetEnumerator()
+        {
+            return GetEnumerator();
+        }
+
+        IEnumerator<LeafNode> IEnumerable<LeafNode>.GetEnumerator()
+        {
+            return GetEnumerator();
+        }
+
+        #endregion // IDataBlockPackage
+
+        #region Internal
+
+        #endregion // Internal
+    }
+
+    public class LeafNodePackage<TNode> : LeafNodePackage, IDataBlockPackage<TNode>
+        where TNode : LeafNode
+    {
+        // temp storage
+        protected readonly Dictionary<StringHash32, TNode> m_Nodes = new Dictionary<StringHash32, TNode>(32);
 
         public LeafNodePackage(string inName)
         {
             m_Name = inName;
         }
 
-        public string Name() { return m_Name; }
-        public string RootPath() { return m_RootPath; }
-
-        public int Count { get { return m_Nodes.Count; } }
+        public override int Count { get { return m_Nodes.Count; } }
 
         #region Modifications
 
         internal void AddNode(TNode inNode)
         {
             m_Nodes.Add(inNode.Id(), inNode);
-        }
-
-        internal void SetLines(Dictionary<StringHash32, string> inLines)
-        {
-            m_LineTable.Clear();
-            foreach(var line in inLines)
-            {
-                m_LineTable.Add(line.Key, line.Value);
-            }
-        }
-
-        internal void SetExpressions(ILeafExpression<TNode>[] inExpressions)
-        {
-            m_ExpressionTable = inExpressions;
-        }
-
-        internal void SetInvocations(ILeafInvocation<TNode>[] inInvocations)
-        {
-            m_InvocationTable = inInvocations;
         }
 
         #endregion // Modifications
@@ -83,71 +123,26 @@ namespace Leaf
             return m_Nodes.TryGetValue(inNodeId, out outNode);
         }
 
-        /// <summary>
-        /// Attempts to retrieve the line with the specific line code in this package.
-        /// </summary>
-        public bool TryGetLine(StringHash32 inLineCode, out string outLine)
-        {
-            return m_LineTable.TryGetValue(inLineCode, out outLine);
-        }
-
-        bool ILeafContentResolver.TryGetNode(StringHash32 inNodeId, LeafNode inLocalNode, out LeafNode outNode)
+        public override bool TryGetNode(StringHash32 inNodeId, out LeafNode outNode)
         {
             TNode node;
-            bool bResult = TryGetNode(inNodeId, out node);
+            bool bFound = TryGetNode(inNodeId, out node);
             outNode = node;
-            return bResult;
-        }
-
-        bool ILeafContentResolver.TryGetLine(StringHash32 inLineCode, LeafNode inLocalNode, out string outLine)
-        {
-            return TryGetLine(inLineCode, out outLine);
-        }
-
-        bool ILeafModule.TryGetExpression(uint inExpressionCode, out ILeafExpression outExpression)
-        {
-            if (inExpressionCode >= m_ExpressionTable.Length)
-            {
-                outExpression = null;
-                return false;
-            }
-
-            outExpression = m_ExpressionTable[(int) inExpressionCode];
-            return true;
-        }
-
-        bool ILeafModule.TryGetInvocation(uint inInvocationCode, out ILeafInvocation outInvocation)
-        {
-            if (inInvocationCode >= m_InvocationTable.Length)
-            {
-                outInvocation = null;
-                return false;
-            }
-
-            outInvocation = m_InvocationTable[(int) inInvocationCode];
-            return true;
-        }
-
-        /// <summary>
-        /// Returns all lines embedded in this package.
-        /// </summary>
-        public IEnumerable<KeyValuePair<StringHash32, string>> AllLines()
-        {
-            return m_LineTable;
+            return bFound;
         }
 
         #endregion // ILeafModule
 
         #region IEnumerable
 
-        public IEnumerator<TNode> GetEnumerator()
+        public override IEnumerator<LeafNode> GetEnumerator()
         {
             return m_Nodes.Values.GetEnumerator();
         }
 
-        IEnumerator IEnumerable.GetEnumerator()
+        IEnumerator<TNode> IEnumerable<TNode>.GetEnumerator()
         {
-            return GetEnumerator();
+            return m_Nodes.Values.GetEnumerator();
         }
 
         #endregion // IEnumerable
@@ -155,12 +150,10 @@ namespace Leaf
         /// <summary>
         /// Clears this package.
         /// </summary>
-        public virtual void Clear()
+        public override void Clear()
         {
+            base.Clear();
             m_Nodes.Clear();
-            m_LineTable.Clear();
-            m_ExpressionTable = Array.Empty<ILeafExpression<TNode>>();
-            m_InvocationTable = Array.Empty<ILeafInvocation<TNode>>();
         }
     }
 }

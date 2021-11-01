@@ -32,7 +32,6 @@ namespace Leaf.Defaults
 
         protected readonly MonoBehaviour m_RoutineHost;
         protected readonly IMethodCache m_MethodCache;
-        protected readonly LeafRuntime<TNode> m_Runtime;
         protected readonly TagStringParser m_TagParser;
         
         protected CustomTagParserConfig m_TagParseConfig;
@@ -60,7 +59,6 @@ namespace Leaf.Defaults
             }
 
             m_MethodCache = inCache ?? LeafUtils.CreateMethodCache();
-            m_Runtime = new LeafRuntime<TNode>(this);
             m_TagParser = new TagStringParser();
             m_TagParser.Delimiters = TagStringParser.CurlyBraceDelimiters;
         }
@@ -103,7 +101,7 @@ namespace Leaf.Defaults
 
             LeafThreadState<TNode> threadState = new LeafThreadState<TNode>(this);
             LeafThreadHandle handle = threadState.Setup(inName, inActor, inLocals);
-            threadState.AttachRoutine(Routine.Start(m_RoutineHost, m_Runtime.Execute(threadState, inNode)));
+            threadState.AttachRoutine(Routine.Start(m_RoutineHost, LeafRuntime.Execute(this, threadState, inNode)));
 
             if (m_RoutineHost.isActiveAndEnabled)
                 threadState.ForceTick();
@@ -138,7 +136,7 @@ namespace Leaf.Defaults
 
         #region Dialog
 
-        public virtual IEnumerator RunLine(LeafThreadState<TNode> inThreadState, StringSlice inLine, ILeafContentResolver inContentResolver)
+        public virtual IEnumerator RunLine(LeafThreadState<TNode> inThreadState, StringSlice inLine)
         {
             if (inLine.IsEmpty || inLine.IsWhitespace)
                 yield break;
@@ -192,16 +190,16 @@ namespace Leaf.Defaults
             yield return Routine.Command.BreakAndResume;
         }
 
-        public virtual IEnumerator ShowOptions(LeafThreadState<TNode> inThreadState, LeafChoice inChoice, ILeafContentResolver inContentResolver)
+        public virtual IEnumerator ShowOptions(LeafThreadState<TNode> inThreadState, LeafChoice inChoice)
         {
-            yield return m_ChoiceDisplayer.ShowChoice(inChoice, inThreadState, inContentResolver);
+            yield return m_ChoiceDisplayer.ShowChoice(inChoice, inThreadState, this);
         }
 
         #endregion // Dialog
 
         #region Lookups
 
-        public virtual bool TryLookupLine(StringHash32 inLineCode, TNode inLocalNode, out string outLine)
+        public virtual bool TryLookupLine(StringHash32 inLineCode, LeafNode inLocalNode, out string outLine)
         {
             // use default implementation in LeafRuntime
             outLine = null;
@@ -215,7 +213,7 @@ namespace Leaf.Defaults
             return false;
         }
 
-        public virtual bool TryLookupObject(StringHash32 inObjectId, LeafThreadState<TNode> inThreadState, out object outObject)
+        public virtual bool TryLookupObject(StringHash32 inObjectId, LeafThreadState inThreadState, out object outObject)
         {
             // use default implementation in LeafRuntime
             outObject = null;

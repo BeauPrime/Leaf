@@ -7,6 +7,7 @@
  * Purpose: Leaf script asset.
  */
 
+using System.Collections;
 using System.Text;
 using BeauUtil.Blocks;
 using Leaf.Compiler;
@@ -60,6 +61,16 @@ namespace Leaf
         }
 
         /// <summary>
+        /// Asynchronously compiles a node package from a LeafAsset.
+        /// </summary>
+        static public TPackage CompileAsync<TNode, TPackage>(LeafAsset inAsset, LeafParser<TNode, TPackage> inParser, out IEnumerator outLoader)
+            where TNode : LeafNode
+            where TPackage : LeafNodePackage<TNode>
+        {
+            return BlockParser.ParseAsync(inAsset.name, inAsset.Source(), BlockParsingRules.Default, inParser, out outLoader);
+        }
+
+        /// <summary>
         /// Compiles a node package from a LeafAsset.
         /// </summary>
         static public TPackage Compile<TNode, TPackage>(LeafAsset inAsset, IBlockParsingRules inParsingRules, LeafParser<TNode, TPackage> inParser)
@@ -67,6 +78,16 @@ namespace Leaf
             where TPackage : LeafNodePackage<TNode>
         {
             return BlockParser.Parse(inAsset.name, inAsset.Source(), inParsingRules, inParser);
+        }
+
+        /// <summary>
+        /// Asynchronously compiles a node package from a LeafAsset.
+        /// </summary>
+        static public TPackage CompileAsync<TNode, TPackage>(LeafAsset inAsset, IBlockParsingRules inParsingRules, LeafParser<TNode, TPackage> inParser, out IEnumerator outLoader)
+            where TNode : LeafNode
+            where TPackage : LeafNodePackage<TNode>
+        {
+            return BlockParser.ParseAsync(inAsset.name, inAsset.Source(), inParsingRules, inParser, out outLoader);
         }
     }
 }

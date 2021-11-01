@@ -7,6 +7,8 @@
  * Purpose: Tokens used for parsing leaf files.
  */
 
+using BeauUtil;
+
 namespace Leaf.Compiler
 {
     /// <summary>
@@ -14,26 +16,27 @@ namespace Leaf.Compiler
     /// </summary>
     static public class LeafTokens
     {
-        static public readonly string Branch = "branch";
-        static public readonly string Break = "break";
-        static public readonly string Call = "call";
-        static public readonly string Choice = "choice";
-        static public readonly string Choose = "choose";
-        static public readonly string Continue = "continue";
-        static public readonly string Else = "else";
-        static public readonly string ElseIf = "elseif";
-        static public readonly string EndIf = "endif";
-        static public readonly string EndWhile = "endwhile";
-        static public readonly string Fork = "fork";
-        static public readonly string Goto = "goto";
-        static public readonly string If = "if";
-        static public readonly string Join = "join";
-        static public readonly string Loop = "loop";
-        static public readonly string Return = "return";
-        static public readonly string Set = "set";
-        static public readonly string Start = "start";
-        static public readonly string Stop = "stop";
-        static public readonly string While = "while";
-        static public readonly string Yield = "yield";
+        static public readonly StringHash32 Answer = "answer";
+        static public readonly StringHash32 Branch = "branch";
+        static public readonly StringHash32 Break = "break";
+        static public readonly StringHash32 Call = "call";
+        static public readonly StringHash32 Choice = "choice";
+        static public readonly StringHash32 Choose = "choose";
+        static public readonly StringHash32 Continue = "continue";
+        static public readonly StringHash32 Else = "else";
+        static public readonly StringHash32 ElseIf = "elseif";
+        static public readonly StringHash32 EndIf = "endif";
+        static public readonly StringHash32 EndWhile = "endwhile";
+        static public readonly StringHash32 Fork = "fork";
+        static public readonly StringHash32 Goto = "goto";
+        static public readonly StringHash32 If = "if";
+        static public readonly StringHash32 Join = "join";
+        static public readonly StringHash32 Loop = "loop";
+        static public readonly StringHash32 Return = "return";
+        static public readonly StringHash32 Set = "set";
+        static public readonly StringHash32 Start = "start";
+        static public readonly StringHash32 Stop = "stop";
+        static public readonly StringHash32 While = "while";
+        static public readonly StringHash32 Yield = "yield";
     }
 }

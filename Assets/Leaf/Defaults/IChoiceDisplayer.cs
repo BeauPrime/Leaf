@@ -20,6 +20,6 @@ namespace Leaf.Defaults
         /// <summary>
         /// Displays a set of choices and allows the user to pick one.
         /// </summary>
-        IEnumerator ShowChoice(LeafChoice inChoice, LeafThreadState inThread, ILeafContentResolver inContentResolver);
+        IEnumerator ShowChoice(LeafChoice inChoice, LeafThreadState inThread, ILeafPlugin inPlugin);
     }
 }

@@ -19,74 +19,59 @@ namespace Leaf.Runtime
     /// <summary>
     /// Runtime environment for LeafThreadState.
     /// </summary>
-    public sealed class LeafRuntime<TNode> : ILeafContentResolver
-        where TNode : LeafNode
+    static public class LeafRuntime
     {
-        private ILeafPlugin<TNode> m_Plugin;
-
-        public LeafRuntime(ILeafPlugin<TNode> inPlugin)
-        {
-            if (inPlugin == null)
-                throw new ArgumentNullException("inPlugin");
-            m_Plugin = inPlugin;
-        }
-
-        /// <summary>
-        /// The plugin dictating specific funcionality
-        /// of the Leaf runtime environment.
-        /// </summary>
-        public ILeafPlugin<TNode> Plugin
-        {
-            get { return m_Plugin; }
-            set
-            {
-                if (value == null)
-                    throw new ArgumentNullException("value");
-                m_Plugin = value;
-            }
-        }
-
         /// <summary>
         /// Evaluates the given node, using the provided thread state.
         /// </summary>
-        public IEnumerator Execute(LeafThreadState<TNode> ioThreadState, TNode inNode)
+        static public IEnumerator Execute<TNode>(ILeafPlugin<TNode> inPlugin, LeafThreadState<TNode> ioThreadState, TNode inNode)
+            where TNode : LeafNode
         {
             if (inNode == null)
                 return null;
             
             ioThreadState.PushNode(inNode);
-            return Execute(ioThreadState);
+            return Execute(inPlugin, ioThreadState);
         }
 
         /// <summary>
         /// Executes the given thread.
         /// </summary>
-        public IEnumerator Execute(LeafThreadState<TNode> ioThreadState)
+        static public IEnumerator Execute<TNode>(ILeafPlugin<TNode> inPlugin, LeafThreadState<TNode> ioThreadState)
+            where TNode : LeafNode
         {
             TNode node;
-            int pc;
+            uint pc;
+            LeafOpcode op;
+            LeafInstructionBlock block;
             while (ioThreadState.HasNodes())
             {
-                ioThreadState.AdvanceState(out node, out pc);
+                ioThreadState.ReadState(out node, out pc);
 
-                var allNodeInstructions = node.Instructions();
-                if (pc >= allNodeInstructions.Length)
+                block = node.Package().m_Instructions;
+
+                // if we've exceeded our frame, pop out
+                if (pc >= node.m_InstructionOffset + node.m_InstructionCount)
                 {
                     ioThreadState.PopNode();
                     continue;
                 }
 
-                LeafInstruction instruction = allNodeInstructions[pc];
+                op = LeafInstruction.ReadOpcode(block.InstructionStream, ref pc);
 
-                switch (instruction.Op)
+                switch (op)
                 {
+                    // TEXT
+
                     case LeafOpcode.RunLine:
                         {
-                            StringHash32 lineCode = instruction.Arg.AsStringHash();
+                            StringHash32 lineCode = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                            ioThreadState.WriteProgramCounter(pc);
+
                             string line;
-                            if (TryLookupLine(lineCode, node, out line))
+                            if (LeafUtils.TryLookupLine(inPlugin, lineCode, node, out line))
                             {
-                                IEnumerator process = m_Plugin.RunLine(ioThreadState, line, this);
+                                IEnumerator process = inPlugin.RunLine(ioThreadState, line);
                                 if (process != null)
                                     yield return process;
                             }
@@ -97,62 +82,383 @@ namespace Leaf.Runtime
                             break;
                         }
 
+                    // EXPRESSIONS
+
+                    case LeafOpcode.EvaluateSingleExpression:
+                        {
+                            uint expressionIdx = LeafInstruction.ReadUInt32(block.InstructionStream, ref pc);
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            Variant result = EvaluateValueExpression(inPlugin, ref block.ExpressionTable[expressionIdx], ioThreadState, block.StringTable);
+                            ioThreadState.PushValue(result);
+                            break;
+                        }
+
+                    case LeafOpcode.EvaluateExpressionsAnd:
+                        {
+                            uint expressionOffset = LeafInstruction.ReadUInt32(block.InstructionStream, ref pc);
+                            ushort expressionCount = LeafInstruction.ReadUInt16(block.InstructionStream, ref pc);
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            bool bLocal;
+                            bool bResult = true;
+                            for(ushort i = 0; i < expressionCount; i++)
+                            {
+                                bLocal = EvaluateLogicalExpression(inPlugin, ref block.ExpressionTable[expressionOffset + i], ioThreadState, block.StringTable);
+                                if (!bLocal)
+                                {
+                                    bResult = false;
+                                    break;
+                                }
+                            }
+
+                            ioThreadState.PushValue(bResult);
+                            break;
+                        }
+
+                    case LeafOpcode.EvaluateExpressionsOr:
+                        {
+                            uint expressionOffset = LeafInstruction.ReadUInt32(block.InstructionStream, ref pc);
+                            ushort expressionCount = LeafInstruction.ReadUInt16(block.InstructionStream, ref pc);
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            bool bLocal;
+                            bool bResult = false;
+                            for(ushort i = 0; i < expressionCount; i++)
+                            {
+                                bLocal = EvaluateLogicalExpression(inPlugin, ref block.ExpressionTable[expressionOffset + i], ioThreadState, block.StringTable);
+                                if (bLocal)
+                                {
+                                    bResult = true;
+                                    break;
+                                }
+                            }
+
+                            ioThreadState.PushValue(bResult);
+                            break;
+                        }
+
+                    case LeafOpcode.EvaluateExpressionsGroup:
+                        {
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            // TODO: Implement
+                            break;
+                        }
+                    
+                    // INVOCATIONS
+
                     case LeafOpcode.Invoke:
                         {
-                            ILeafInvocation<TNode> invocation;
-                            if (TryLookupInvocation(instruction.Arg.AsUInt(), node, out invocation))
-                            {
-                                IEnumerator process = invocation.Invoke(ioThreadState, m_Plugin, null);
-                                if (process != null)
-                                    yield return process;
-                            }
-                            else
-                            {
-                                Log.Error("[LeafRuntime] Could not locate invocation {0} from node '{1}'", instruction.Arg.AsUInt(), node.Id());
-                            }
+                            MethodCall invocation;
+                            invocation.Id = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                            invocation.Args = LeafInstruction.ReadStringTableString(block.InstructionStream, ref pc, block.StringTable);
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            IEnumerator process = Invoke(inPlugin, invocation, ioThreadState, null);
+                            if (process != null)
+                                yield return process;
+                            break;
+                        }
+
+                    case LeafOpcode.InvokeWithReturn:
+                        {
+                            MethodCall invocation;
+                            invocation.Id = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                            invocation.Args = LeafInstruction.ReadStringTableString(block.InstructionStream, ref pc, block.StringTable);
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            Variant result = InvokeWithReturn(inPlugin, invocation, ioThreadState, null);
+                            ioThreadState.PushValue(result);
                             break;
                         }
 
                     case LeafOpcode.InvokeWithTarget:
                         {
+                            MethodCall invocation;
+                            invocation.Id = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                            invocation.Args = LeafInstruction.ReadStringTableString(block.InstructionStream, ref pc, block.StringTable);
+                            ioThreadState.WriteProgramCounter(pc);
+
                             StringHash32 objectId = ioThreadState.PopValue().AsStringHash();
                             object target;
 
-                            if (!TryLookupObject(objectId, ioThreadState, out target))
+                            if (!LeafUtils.TryLookupObject(inPlugin, objectId, ioThreadState, out target))
                             {
                                 Log.Warn("[LeafRuntime] Could not locate target {0} from node '{1}'", objectId, node.Id());
                                 break;
                             }
 
-                            ILeafInvocation<TNode> invocation;
-                            if (TryLookupInvocation(instruction.Arg.AsUInt(), node, out invocation))
+                            IEnumerator process = Invoke(inPlugin, invocation, ioThreadState, target);
+                            if (process != null)
+                                yield return process;
+                            break;
+                        }
+                    
+                    // STACK
+
+                    case LeafOpcode.PushValue:
+                        {
+                            Variant value = LeafInstruction.ReadVariant(block.InstructionStream, ref pc);
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            ioThreadState.PushValue(value);
+                            break;
+                        }
+
+                    case LeafOpcode.PopValue:
+                        {
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            ioThreadState.PopValue();
+                            break;
+                        }
+
+                    case LeafOpcode.DuplicateValue:
+                        {
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            Variant current = ioThreadState.PeekValue();
+                            ioThreadState.PushValue(current);
+                            break;
+                        }
+
+                    // MEMORY
+
+                    case LeafOpcode.LoadTableValue:
+                        {
+                            TableKeyPair keyPair = LeafInstruction.ReadTableKeyPair(block.InstructionStream, ref pc);
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            Variant value = ioThreadState.GetVariable(keyPair, ioThreadState); 
+                            ioThreadState.PushValue(value);
+                            break;
+                        }
+
+                    case LeafOpcode.StoreTableValue:
+                        {
+                            TableKeyPair keyPair = LeafInstruction.ReadTableKeyPair(block.InstructionStream, ref pc);
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            Variant value = ioThreadState.PopValue(); 
+                            ioThreadState.SetVariable(keyPair, value, ioThreadState);
+                            break;
+                        }
+
+                    case LeafOpcode.IncrementTableValue:
+                        {
+                            TableKeyPair keyPair = LeafInstruction.ReadTableKeyPair(block.InstructionStream, ref pc);
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            ioThreadState.IncrementVariable(keyPair, 1, ioThreadState);
+                            break;
+                        }
+
+                    // ARITHMETIC
+
+                    case LeafOpcode.Add:
+                        {
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            Variant a = ioThreadState.PopValue();
+                            Variant b = ioThreadState.PopValue();
+                            Variant c = a + b;
+                            ioThreadState.PushValue(c);
+
+                            break;
+                        }
+
+                    case LeafOpcode.Subtract:
+                        {
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            Variant a = ioThreadState.PopValue();
+                            Variant b = ioThreadState.PopValue();
+                            Variant c = b - a;
+                            ioThreadState.PushValue(c);
+
+                            break;
+                        }
+
+                    case LeafOpcode.Multiply:
+                        {
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            Variant a = ioThreadState.PopValue();
+                            Variant b = ioThreadState.PopValue();
+                            Variant c = a * b;
+                            ioThreadState.PushValue(c);
+
+                            break;
+                        }
+
+                    case LeafOpcode.Divide:
+                        {
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            Variant a = ioThreadState.PopValue();
+                            Variant b = ioThreadState.PopValue();
+                            Variant c = b / a;
+                            ioThreadState.PushValue(c);
+
+                            break;
+                        }
+
+                    // LOGICAL OPERATORS
+
+                    case LeafOpcode.Not:
+                        {
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            Variant a = ioThreadState.PopValue();
+                            Variant b = !a.AsBool();
+                            ioThreadState.PushValue(b);
+                            break;
+                        }
+
+                    case LeafOpcode.CastToBool:
+                        {
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            Variant a = ioThreadState.PopValue().AsBool();
+                            ioThreadState.PushValue(a);
+                            break;
+                        }
+
+                    case LeafOpcode.LessThan:
+                        {
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            Variant a = ioThreadState.PopValue();
+                            Variant b = ioThreadState.PopValue();
+                            Variant c = b < a;
+                            ioThreadState.PushValue(c);
+                            break;
+                        }
+
+                    case LeafOpcode.LessThanOrEqualTo:
+                        {
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            Variant a = ioThreadState.PopValue();
+                            Variant b = ioThreadState.PopValue();
+                            Variant c = b <= a;
+                            ioThreadState.PushValue(c);
+                            break;
+                        }
+
+                    case LeafOpcode.EqualTo:
+                        {
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            Variant a = ioThreadState.PopValue();
+                            Variant b = ioThreadState.PopValue();
+                            Variant c = b == a;
+                            ioThreadState.PushValue(c);
+                            break;
+                        }
+
+                    case LeafOpcode.NotEqualTo:
+                        {
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            Variant a = ioThreadState.PopValue();
+                            Variant b = ioThreadState.PopValue();
+                            Variant c = b != a;
+                            ioThreadState.PushValue(c);
+                            break;
+                        }
+
+                    case LeafOpcode.GreaterThanOrEqualTo:
+                        {
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            Variant a = ioThreadState.PopValue();
+                            Variant b = ioThreadState.PopValue();
+                            Variant c = b >= a;
+                            ioThreadState.PushValue(c);
+                            break;
+                        }
+
+                    case LeafOpcode.GreaterThan:
+                        {
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            Variant a = ioThreadState.PopValue();
+                            Variant b = ioThreadState.PopValue();
+                            Variant c = b > a;
+                            ioThreadState.PushValue(c);
+                            break;
+                        }
+                    
+                    // JUMPS
+
+                    case LeafOpcode.Jump:
+                        {
+                            short relative = LeafInstruction.ReadInt16(block.InstructionStream, ref pc);
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            ioThreadState.JumpRelative(relative);
+                            break;
+                        }
+
+                    case LeafOpcode.JumpIfFalse:
+                        {
+                            short relative = LeafInstruction.ReadInt16(block.InstructionStream, ref pc);
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            bool bValue = ioThreadState.PopValue().AsBool();
+                            if (!bValue)
                             {
-                                IEnumerator process = invocation.Invoke(ioThreadState, m_Plugin, target);
-                                if (process != null)
-                                    yield return process;
-                            }
-                            else
-                            {
-                                Log.Error("[LeafRuntime] Could not locate invocation {0} from node '{1}'", instruction.Arg.AsUInt(), node.Id());
+                                ioThreadState.JumpRelative(relative);
                             }
                             break;
                         }
 
-                    case LeafOpcode.Stop:
+                    case LeafOpcode.JumpIndirect:
                         {
-                            ioThreadState.ClearNodes();
+                            ioThreadState.WriteProgramCounter(pc);
+                            
+                            int jump = ioThreadState.PopValue().AsInt();
+                            ioThreadState.JumpRelative(jump);
                             break;
                         }
 
-                    case LeafOpcode.Yield:
+                    // FLOW CONTROL
+
+                    case LeafOpcode.GotoNode:
                         {
-                            yield return null;
+                            StringHash32 nodeId = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            TryGotoNode(inPlugin, ioThreadState, node, nodeId);
                             break;
                         }
 
-                    case LeafOpcode.Loop:
+                    case LeafOpcode.GotoNodeIndirect:
                         {
-                            ioThreadState.ResetProgramCounter();
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            StringHash32 nodeId = ioThreadState.PopValue().AsStringHash();
+                            TryGotoNode(inPlugin, ioThreadState, node, nodeId);
+                            break;
+                        }
+
+                    case LeafOpcode.BranchNode:
+                        {
+                            StringHash32 nodeId = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            TryBranchNode(inPlugin, ioThreadState, node, nodeId);
+                            break;
+                        }
+
+                    case LeafOpcode.BranchNodeIndirect:
+                        {
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            StringHash32 nodeId = ioThreadState.PopValue().AsStringHash();
+                            TryBranchNode(inPlugin, ioThreadState, node, nodeId);
                             break;
                         }
 
@@ -162,146 +468,110 @@ namespace Leaf.Runtime
                             break;
                         }
 
-                    case LeafOpcode.BranchNode:
+                    case LeafOpcode.Stop:
                         {
-                            TryBranchNode(ioThreadState, node, instruction.Arg.AsStringHash());
+                            ioThreadState.ClearNodes();
                             break;
                         }
 
-                    case LeafOpcode.BranchNodeIndirect:
+                    case LeafOpcode.Loop:
                         {
-                            StringHash32 nodeId = ioThreadState.PopValue().AsStringHash();
-                            TryBranchNode(ioThreadState, node, nodeId);
+                            ioThreadState.ResetProgramCounter();
                             break;
                         }
+
+                    case LeafOpcode.Yield:
+                        {
+                            ioThreadState.WriteProgramCounter(pc);
+                            yield return null;
+                            break;
+                        }
+
+                    // FORKING
 
                     case LeafOpcode.ForkNode:
                         {
-                            TryForkNode(ioThreadState, node, instruction.Arg.AsStringHash(), true);
+                            StringHash32 nodeId = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            TryForkNode(inPlugin, ioThreadState, node, nodeId, true);
                             break;
                         }
 
                     case LeafOpcode.ForkNodeIndirect:
                         {
+                            ioThreadState.WriteProgramCounter(pc);
+                            
                             StringHash32 nodeId = ioThreadState.PopValue().AsStringHash();
-                            TryForkNode(ioThreadState, node, nodeId, true);
+                            TryForkNode(inPlugin, ioThreadState, node, nodeId, true);
                             break;
                         }
 
                     case LeafOpcode.ForkNodeUntracked:
                         {
-                            TryForkNode(ioThreadState, node, instruction.Arg.AsStringHash(), false);
+                            StringHash32 nodeId = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            TryForkNode(inPlugin, ioThreadState, node, nodeId, false);
                             break;
                         }
 
                     case LeafOpcode.ForkNodeIndirectUntracked:
                         {
+                            ioThreadState.WriteProgramCounter(pc);
+
                             StringHash32 nodeId = ioThreadState.PopValue().AsStringHash();
-                            TryForkNode(ioThreadState, node, nodeId, false);
+                            TryForkNode(inPlugin, ioThreadState, node, nodeId, false);
                             break;
                         }
 
                     case LeafOpcode.JoinForks:
                         {
+                            ioThreadState.WriteProgramCounter(pc);
+
                             // TODO: Maybe a better way to wait?
                             while(ioThreadState.HasChildren())
                                 yield return null;
                             break;
                         }
 
-                    case LeafOpcode.EvaluateExpression:
-                        {
-                            ILeafExpression<TNode> expression;
-                            if (TryLookupExpression(instruction.Arg.AsUInt(), node, out expression))
-                            {
-                                Variant result = expression.Evaluate(ioThreadState, m_Plugin);
-                                ioThreadState.PushValue(result);
-                            }
-                            else
-                            {
-                                Log.Error("[LeafRuntime] Could not locate expression {0} from node '{1}'", instruction.Arg.AsUInt(), node.Id());
-                                ioThreadState.PushValue(Variant.Null);
-                            }
-                            break;
-                        }
-
-                    case LeafOpcode.SetFromExpression:
-                        {
-                            ILeafExpression<TNode> expression;
-                            if (TryLookupExpression(instruction.Arg.AsUInt(), node, out expression))
-                            {
-                                expression.Assign(ioThreadState, m_Plugin);
-                            }
-                            else
-                            {
-                                Log.Error("[LeafRuntime] Could not locate expression {0} from node '{1}'", instruction.Arg.AsUInt(), node.Id());
-                            }
-                            break;
-                        }
-
-                    case LeafOpcode.GotoNode:
-                        {
-                            TryGotoNode(ioThreadState, node, instruction.Arg.AsStringHash());
-                            break;
-                        }
-
-                    case LeafOpcode.GotoNodeIndirect:
-                        {
-                            StringHash32 nodeId = ioThreadState.PopValue().AsStringHash();
-                            TryGotoNode(ioThreadState, node, nodeId);
-                            break;
-                        }
-
-                    case LeafOpcode.PushValue:
-                        {
-                            ioThreadState.PushValue(instruction.Arg);
-                            break;
-                        }
-
-                    case LeafOpcode.PopValue:
-                        {
-                            ioThreadState.PopValue();
-                            break;
-                        }
-
-                    case LeafOpcode.Jump:
-                        {
-                            ioThreadState.JumpRelative(instruction.Arg.AsInt());
-                            break;
-                        }
-
-                    case LeafOpcode.JumpIfFalse:
-                        {
-                            bool bValue = ioThreadState.PopValue().AsBool();
-                            if (!bValue)
-                            {
-                                ioThreadState.JumpRelative(instruction.Arg.AsInt());
-                            }
-                            break;
-                        }
-
-                    case LeafOpcode.JumpIndirect:
-                        {
-                            int jump = ioThreadState.PopValue().AsInt();
-                            ioThreadState.JumpRelative(jump);
-                            break;
-                        }
+                    // CHOICES
 
                     case LeafOpcode.AddChoiceOption:
                         {
+                            StringHash32 textId = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                            LeafChoice.OptionFlags flags = (LeafChoice.OptionFlags) LeafInstruction.ReadByte(block.InstructionStream, ref pc);
+                            ioThreadState.WriteProgramCounter(pc);
+
                             bool bAvailable = ioThreadState.PopValue().AsBool();
-                            StringHash32 lineCode = ioThreadState.PopValue().AsStringHash();
                             Variant nodeId = ioThreadState.PopValue();
-                            ioThreadState.AddOption(nodeId, lineCode, bAvailable);
+
+                            if (bAvailable)
+                            {
+                                flags |= LeafChoice.OptionFlags.IsAvailable;
+                            }
+                            ioThreadState.AddOption(nodeId, textId, flags);
+                            break;
+                        }
+
+                    case LeafOpcode.AddChoiceAnswer:
+                        {
+                            StringHash32 answerId = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                            ioThreadState.WriteProgramCounter(pc);
+
+                            Variant nodeId = ioThreadState.PopValue();
+                            ioThreadState.AddOptionAnswer(answerId, nodeId);
                             break;
                         }
 
                     case LeafOpcode.ShowChoices:
                         {
+                            ioThreadState.WriteProgramCounter(pc);
+
                             LeafChoice currentChoice = ioThreadState.GetOptions();
                             if (currentChoice.AvailableCount > 0)
                             {
-                                yield return m_Plugin.ShowOptions(ioThreadState, currentChoice, this);
+                                yield return inPlugin.ShowOptions(ioThreadState, currentChoice);
                                 Variant chosenNode = currentChoice.ChosenTarget();
                                 currentChoice.Reset();
                                 ioThreadState.PushValue(chosenNode);
@@ -313,10 +583,20 @@ namespace Leaf.Runtime
                             }
                             break;
                         }
+                
+                    case LeafOpcode.NoOp:
+                        {
+                            break;
+                        }
+
+                    default:
+                        {
+                            throw new InvalidOperationException("Unrecognized opcode " + op);
+                        }
                 }
             }
 
-            m_Plugin.OnEnd(ioThreadState);
+            inPlugin.OnEnd(ioThreadState);
         }
 
         #region Small Operations
@@ -324,7 +604,8 @@ namespace Leaf.Runtime
         /// <summary>
         /// Attempts to switch the current thread to the given node.
         /// </summary>
-        public void TryGotoNode(LeafThreadState<TNode> ioThreadState, TNode inLocalNode, StringHash32 inNodeId)
+        static public void TryGotoNode<TNode>(ILeafPlugin<TNode> inPlugin, LeafThreadState<TNode> ioThreadState, TNode inLocalNode, StringHash32 inNodeId)
+            where TNode : LeafNode
         {
             if (inNodeId.IsEmpty)
             {
@@ -333,7 +614,7 @@ namespace Leaf.Runtime
             }
 
             TNode targetNode;
-            if (TryLookupNode(inNodeId, inLocalNode, out targetNode))
+            if (LeafUtils.TryLookupNode(inPlugin, inNodeId, inLocalNode, out targetNode))
             {
                 ioThreadState.GotoNode(targetNode);
             }
@@ -348,7 +629,8 @@ namespace Leaf.Runtime
         /// Attempts to branch the current thread to the given node.
         /// Once the given node is finished, execution will resume at the previously loaded node.
         /// </summary>
-        public void TryBranchNode(LeafThreadState<TNode> ioThreadState, TNode inLocalNode, StringHash32 inNodeId)
+        static public void TryBranchNode<TNode>(ILeafPlugin<TNode> inPlugin, LeafThreadState<TNode> ioThreadState, TNode inLocalNode, StringHash32 inNodeId)
+            where TNode : LeafNode
         {
             if (inNodeId.IsEmpty)
             {
@@ -356,7 +638,7 @@ namespace Leaf.Runtime
             }
 
             TNode targetNode;
-            if (TryLookupNode(inNodeId, inLocalNode, out targetNode))
+            if (LeafUtils.TryLookupNode(inPlugin, inNodeId, inLocalNode, out targetNode))
             {
                 ioThreadState.PushNode(targetNode);
             }
@@ -370,7 +652,8 @@ namespace Leaf.Runtime
         /// <summary>
         /// Attempts to fork a thread for the given node.
         /// </summary>
-        public void TryForkNode(LeafThreadState<TNode> ioThreadState, TNode inLocalNode, StringHash32 inNodeId, bool inbTrack)
+        static public void TryForkNode<TNode>(ILeafPlugin<TNode> inPlugin, LeafThreadState<TNode> ioThreadState, TNode inLocalNode, StringHash32 inNodeId, bool inbTrack)
+            where TNode : LeafNode
         {
             if (inNodeId.IsEmpty)
             {
@@ -378,9 +661,9 @@ namespace Leaf.Runtime
             }
 
             TNode targetNode;
-            if (TryLookupNode(inNodeId, inLocalNode, out targetNode))
+            if (LeafUtils.TryLookupNode(inPlugin, inNodeId, inLocalNode, out targetNode))
             {
-                var newThread = m_Plugin.Fork(ioThreadState, targetNode);
+                var newThread = inPlugin.Fork(ioThreadState, targetNode);
                 if (inbTrack && newThread != null)
                 {
                     ioThreadState.AddChild(newThread);
@@ -394,88 +677,169 @@ namespace Leaf.Runtime
         }
 
         #endregion // Small Operations
+
+        #region Invocation
+
+        /// <summary>
+        /// Invokes the given method call from the given thread.
+        /// </summary>
+        static public IEnumerator Invoke(ILeafPlugin inPlugin, MethodCall inInvocation, LeafThreadState inThreadState, object inTarget)
+        {
+            IMethodCache cache = inPlugin.MethodCache;
+            if (cache == null)
+                throw new InvalidOperationException("Cannot use DefaultLeafInvocation if ILeafPlugin.MethodCache is not specified for plugin");
+            
+            bool bSuccess;
+            object result;
+            if (inTarget == null)
+            {
+                bSuccess = cache.TryStaticInvoke(inInvocation.Id, inInvocation.Args, inThreadState, out result);
+            }
+            else
+            {
+                bSuccess = cache.TryInvoke(inTarget, inInvocation.Id, inInvocation.Args, inThreadState, out result);
+            }
+
+            if (!bSuccess)
+                Log.Error("[DefaultLeafInvocation] Unable to execute method '{0}'", inInvocation);
+
+            return result as IEnumerator;
+        }
+
+        /// <summary>
+        /// Invokes the given method call from the given thread.
+        /// </summary>
+        static public Variant InvokeWithReturn(ILeafPlugin inPlugin, MethodCall inInvocation, LeafThreadState inThreadState, object inTarget)
+        {
+            IMethodCache cache = inPlugin.MethodCache;
+            if (cache == null)
+                throw new InvalidOperationException("ILeafPlugin.MethodCache is not specified for plugin");
+            
+            bool bSuccess;
+            object result;
+            if (inTarget == null)
+            {
+                bSuccess = cache.TryStaticInvoke(inInvocation.Id, inInvocation.Args, inThreadState, out result);
+            }
+            else
+            {
+                bSuccess = cache.TryInvoke(inTarget, inInvocation.Id, inInvocation.Args, inThreadState, out result);
+            }
+
+            if (!bSuccess)
+            {
+                Log.Error("[LeafRuntime] Unable to execute method '{0}'", inInvocation);
+                return default(Variant);
+            }
+            else
+            {
+                Variant variantResult;
+                bSuccess = Variant.TryConvertFrom(result, out variantResult);
+                if (!bSuccess)
+                {
+                    Log.Error("[LeafRuntime] Unable to convert result of method call '{0}' (type '{1}') to variant", inInvocation, result.GetType().Name);
+                    return default(Variant);
+                }
+
+                return variantResult;
+            }
+        }
+
+        #endregion // Invocation
     
-        #region Lookups
+        #region Expressions
 
-        /// <summary>
-        /// Attempts to look up the line with the given code, first using the plugin
-        /// and falling back to searching the node's module.
-        /// </summary>
-        public bool TryLookupLine(StringHash32 inLineCode, TNode inLocalNode, out string outLine)
+        static internal Variant EvaluateValueExpression(ILeafPlugin inPlugin, ref LeafExpression inExpression, LeafThreadState ioThreadState, string[] inStringTable)
         {
-            if (!m_Plugin.TryLookupLine(inLineCode, inLocalNode, out outLine))
+            if ((inExpression.Flags & LeafExpression.TypeFlags.IsLogical) != 0)
             {
-                var module = inLocalNode.Module();
-                return module.TryGetLine(inLineCode, inLocalNode, out outLine);
+                return EvaluateLogicalExpression(inPlugin, ref inExpression, ioThreadState, inStringTable);
             }
 
-            return true;
+            ref LeafExpression.Operand operand = ref inExpression.Left;
+            Variant value;
+            TryEvaluateOperand(inPlugin, ref operand, ioThreadState, inStringTable, out value);
+            return value;
         }
-        
-        /// <summary>
-        /// Attempts to look up the node with the given id, first using the plugin
-        /// and falling back to searching the node's module.
-        /// </summary>
-        public bool TryLookupNode(StringHash32 inNodeId, TNode inLocalNode, out TNode outNode)
+
+        static internal bool TryEvaluateOperand(ILeafPlugin inPlugin, ref LeafExpression.Operand inOperand, LeafThreadState ioThreadState, string[] inStringTable, out Variant outValue)
         {
-            if (!m_Plugin.TryLookupNode(inNodeId, inLocalNode, out outNode))
+            switch(inOperand.Type)
             {
-                var module = inLocalNode.Module();
-                
-                LeafNode node;
-                bool bResult = module.TryGetNode(inNodeId, inLocalNode, out node);
-                outNode = (TNode) node;
-                return bResult;
+                case LeafExpression.OperandType.Value:
+                    {
+                        outValue = inOperand.Data.Value;
+                        return true;
+                    }
+                case LeafExpression.OperandType.Read:
+                    {
+                        return ioThreadState.TryGetVariable(inOperand.Data.TableKey, ioThreadState, out outValue);
+                    }
+                case LeafExpression.OperandType.Method:
+                    {
+                        MethodCall call;
+                        call.Id = inOperand.Data.MethodId;
+
+                        uint stringIdx = inOperand.Data.MethodArgsIndex;
+                        if (stringIdx == LeafInstruction.EmptyIndex)
+                        {
+                            call.Args = null;
+                        }
+                        else
+                        {
+                            call.Args = inStringTable[stringIdx];
+                        }
+
+                        outValue = InvokeWithReturn(inPlugin, call, ioThreadState, null);
+                        return true;
+                    }
+                default:
+                    {
+                        throw new InvalidOperationException("Unknown expression operand type " + inOperand.Type);
+                    }
+            }
+        }
+
+        static internal bool EvaluateLogicalExpression(ILeafPlugin inPlugin, ref LeafExpression inExpression, LeafThreadState ioThreadState, string[] inStringTable)
+        {
+            bool leftExists;
+            Variant left, right;
+            leftExists = TryEvaluateOperand(inPlugin, ref inExpression.Left, ioThreadState, inStringTable, out left);
+
+            switch(inExpression.Operator)
+            {
+                case VariantCompareOperator.Exists:
+                    return leftExists;
+                case VariantCompareOperator.DoesNotExist:
+                    return !leftExists;
+                case VariantCompareOperator.True:
+                    return left.AsBool();
+                case VariantCompareOperator.False:
+                    return !left.AsBool();
             }
 
-            return true;
+            TryEvaluateOperand(inPlugin, ref inExpression.Right, ioThreadState, inStringTable, out right);
+
+            switch(inExpression.Operator)
+            {
+                case VariantCompareOperator.LessThan:
+                    return left < right;
+                case VariantCompareOperator.LessThanOrEqualTo:
+                    return left <= right;
+                case VariantCompareOperator.EqualTo:
+                    return left == right;
+                case VariantCompareOperator.NotEqualTo:
+                    return left != right;
+                case VariantCompareOperator.GreaterThanOrEqualTo:
+                    return left >= right;
+                case VariantCompareOperator.GreaterThan:
+                    return left > right;
+
+                default:
+                    throw new InvalidOperationException("Unknown expression comparison operator" + inExpression.Operator);
+            }
         }
 
-        private bool TryLookupExpression(uint inExpressionCode, TNode inLocalNode, out ILeafExpression<TNode> outExpression)
-        {
-            var module = inLocalNode.Module();
-
-            ILeafExpression expression;
-            bool bResult = module.TryGetExpression(inExpressionCode, out expression);
-            outExpression = (ILeafExpression<TNode>) expression;
-            return bResult;
-        }
-
-        private bool TryLookupInvocation(uint inInvocationCode, TNode inLocalNode, out ILeafInvocation<TNode> outInvocation)
-        {
-            var module = inLocalNode.Module();
-
-            ILeafInvocation invocation;
-            bool bResult = module.TryGetInvocation(inInvocationCode, out invocation);
-            outInvocation = (ILeafInvocation<TNode>) invocation;
-            return bResult;
-        }
-
-        private bool TryLookupObject(StringHash32 inTargetId, LeafThreadState<TNode> ioThreadState, out object outTarget)
-        {
-            if (ioThreadState != null)
-                return ioThreadState.TryLookupObject(inTargetId, out outTarget);
-
-            return m_Plugin.TryLookupObject(inTargetId, ioThreadState, out outTarget);
-        }
-
-        #endregion // Lookups
-
-        #region ILeafContentResolver
-
-        bool ILeafContentResolver.TryGetNode(StringHash32 inNodeId, LeafNode inLocalNode, out LeafNode outNode)
-        {
-            TNode node;
-            bool bResult = TryLookupNode(inNodeId, (TNode) inLocalNode, out node);
-            outNode = node;
-            return bResult;
-        }
-
-        bool ILeafContentResolver.TryGetLine(StringHash32 inLineCode, LeafNode inLocalNode, out string outLine)
-        {
-            return TryLookupLine(inLineCode, (TNode) inLocalNode, out outLine);
-        }
-
-        #endregion // ILeafContentResolver
+        #endregion // Expressions
     }
 }

@@ -7,6 +7,10 @@
  * Purpose: Set of options to display, linked to different nodes.
  */
 
+#if CSHARP_7_3_OR_NEWER
+#define EXPANDED_REFS
+#endif // CSHARP_7_3_OR_NEWER
+
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -27,14 +31,48 @@ namespace Leaf
         {
             public readonly Variant TargetId;
             public readonly StringHash32 LineCode;
-            public readonly bool IsAvailable;
+            public OptionFlags Flags;
+            public bool IsAvailable { get { return (Flags & OptionFlags.IsAvailable) != 0; } }
 
-            public Option(Variant inTargetId, StringHash32 inLineCode, bool inbIsAvailable = true)
+            internal ushort m_AnswersOffset;
+            internal ushort m_AnswersLength;
+            internal Variant m_DefaultAnswerTarget;
+
+            public Option(Variant inTargetId, StringHash32 inLineCode, OptionFlags inFlags = OptionFlags.IsAvailable)
             {
                 TargetId = inTargetId;
                 LineCode = inLineCode;
-                IsAvailable = inbIsAvailable;
+                Flags = inFlags;
+
+                m_AnswersOffset = 0;
+                m_AnswersLength = 0;
+                m_DefaultAnswerTarget = null;
             }
+        }
+
+        /// <summary>
+        /// Answer selector within a special option.
+        /// </summary>
+        public struct Answer
+        {
+            public readonly Variant AnswerId;
+            public readonly Variant TargetId;
+
+            public Answer(Variant inAnswerId, Variant inTargetId)
+            {
+                AnswerId = inAnswerId;
+                TargetId = inTargetId;
+            }
+        }
+
+        /// <summary>
+        /// Flags describing intended option behavior.
+        /// </summary>
+        [Flags]
+        public enum OptionFlags : byte
+        {
+            IsAvailable = 0x01,
+            IsSelector = 0x02
         }
 
         private enum State
@@ -44,7 +82,8 @@ namespace Leaf
             Chosen
         }
 
-        private readonly List<Option> m_AllOptions = new List<Option>(4);
+        private readonly RingBuffer<Option> m_AllOptions = new RingBuffer<Option>(4, RingBufferMode.Expand);
+        private readonly RingBuffer<Answer> m_AllAnswers = new RingBuffer<Answer>(4, RingBufferMode.Expand);
         private State m_State = State.Accumulating;
         private Variant m_ChosenOption;
         private int m_ChosenIndex;
@@ -89,11 +128,48 @@ namespace Leaf
         {
             if (m_State != State.Accumulating)
                 throw new InvalidOperationException(string.Format("Cannot add options while in {0} state", m_State));
-            m_AllOptions.Add(inOption);
+            inOption.m_AnswersOffset = (ushort) m_AllAnswers.Count;
+            m_AllOptions.PushBack(inOption);
             if (inOption.IsAvailable)
             {
                 ++AvailableCount;
             }
+        }
+
+        /// <summary>
+        /// Adds an answer to the last choice.
+        /// </summary>
+        public void AddAnswer(Answer inAnswer)
+        {
+            if (m_State != State.Accumulating)
+                throw new InvalidOperationException(string.Format("Cannot add answers while in {0} state", m_State));
+            if (m_AllOptions.Count == 0)
+                throw new InvalidOperationException("Cannot add answers when no choices have been added");
+
+            Variant answerId = inAnswer.AnswerId;
+
+            // increment previous choice answer count
+            #if EXPANDED_REFS
+            ref Option option = ref m_AllOptions[m_AllOptions.Count - 1];
+            #else
+            Option option = m_AllOptions[m_AllOptions.Count - 1];
+            #endif // EXPANDED_REFS
+
+            option.Flags |= OptionFlags.IsSelector;
+
+            if (answerId.IsNull() || answerId.AsStringHash().IsEmpty)
+            {
+                option.m_DefaultAnswerTarget = inAnswer.TargetId;
+            }
+            else
+            {
+                m_AllAnswers.PushBack(inAnswer);
+                option.m_AnswersLength++;
+            }
+            
+            #if !EXPANDED_REFS
+            m_AllOptions[m_AllOptions.Count - 1] = option;
+            #endif // !EXPANDED_REFS
         }
 
         /// <summary>
@@ -114,15 +190,33 @@ namespace Leaf
             if (m_State != State.Choosing)
                 throw new InvalidOperationException(string.Format("Cannot choose an option while in {0} state", m_State));
 
-            for(int i = m_AllOptions.Count - 1; i >= 0; --i)
+            int index = IndexOf(inTargetId);
+            if (index >= 0)
             {
-                if (m_AllOptions[i].TargetId == inTargetId)
-                {
-                    m_ChosenIndex = i;
-                    m_ChosenOption = inTargetId;
-                    m_State = State.Chosen;
-                    return;
-                }
+                m_ChosenIndex = index;
+                m_ChosenOption = inTargetId;
+                m_State = State.Chosen;
+                return;
+            }
+
+            throw new Exception(string.Format("No option with target id {0} is present in this choice", inTargetId.ToDebugString()));
+        }
+
+        /// <summary>
+        /// Chooses the option with the given node id and answer id.
+        /// </summary>
+        public void Choose(Variant inTargetId, Variant inAnswerId)
+        {
+            if (m_State != State.Choosing)
+                throw new InvalidOperationException(string.Format("Cannot choose an option while in {0} state", m_State));
+
+            int index = IndexOf(inTargetId);
+            if (index >= 0)
+            {
+                m_ChosenIndex = index;
+                m_ChosenOption = GetAnswerResponse(index, inAnswerId);
+                m_State = State.Chosen;
+                return;
             }
 
             throw new Exception(string.Format("No option with target id {0} is present in this choice", inTargetId.ToDebugString()));
@@ -144,6 +238,21 @@ namespace Leaf
         }
 
         /// <summary>
+        /// Chooses the option with the given index and answer id.
+        /// </summary>
+        public void Choose(int inIndex, Variant inAnswerId)
+        {
+            if (m_State != State.Choosing)
+                throw new InvalidOperationException(string.Format("Cannot choose an option while in {0} state", m_State));
+            if (inIndex < 0 || inIndex >= m_AllOptions.Count)
+                throw new ArgumentOutOfRangeException("inIndex");
+            
+            m_ChosenIndex = inIndex;
+            m_ChosenOption = GetAnswerResponse(inIndex, inAnswerId);;
+            m_State = State.Chosen;
+        }
+
+        /// <summary>
         /// Returns if an option has been chosen.
         /// </summary>
         public bool HasChosen()
@@ -152,7 +261,7 @@ namespace Leaf
         }
 
         /// <summary>
-        /// Returns the chosen option's node.
+        /// Returns the chosen option's node target.
         /// </summary>
         public Variant ChosenTarget()
         {
@@ -160,7 +269,7 @@ namespace Leaf
         }
 
         /// <summary>
-        /// Returns the index of the option.
+        /// Returns the index of the chosen option.
         /// </summary>
         public int ChosenIndex()
         {
@@ -173,10 +282,41 @@ namespace Leaf
         public void Reset()
         {
             m_AllOptions.Clear();
+            m_AllAnswers.Clear();
             AvailableCount = 0;
             m_State = State.Accumulating;
             m_ChosenOption = Variant.Null;
             m_ChosenIndex = -1;
+        }
+
+        private int IndexOf(Variant inTargetId)
+        {
+            for(int i = 0, length = m_AllOptions.Count; i < length; i++)
+            {
+                if (m_AllOptions[i].TargetId == inTargetId)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private Variant GetAnswerResponse(int inOptionIndex, Variant inAnswer)
+        {
+            Option option = m_AllOptions[inOptionIndex];
+            ListSlice<Answer> answers = new ListSlice<Answer>(m_AllAnswers, option.m_AnswersOffset, option.m_AnswersLength);
+            Answer check;
+            for(int i = 0; i < answers.Length; i++)
+            {
+                check = answers[i];
+                if (check.AnswerId == inAnswer)
+                {
+                    return check.TargetId;
+                }
+            }
+
+            return option.m_DefaultAnswerTarget;
         }
     }
 }

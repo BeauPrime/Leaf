@@ -1,18 +1,16 @@
 {
-	"name": "com.beauprime.leaf",
-	"version": "0.1.3",
-	"displayName": "Leaf",
-	"description": "Leaf is a narrative-focused scripting language and runtime for Unity.",
-	"unity": "2019.3",
-
-	"author": {
-		"name": "Autumn Beauchesne",
-		"email": "beauchesne@beauprime.com",
-		"url": "beauprime.com"
-	},
-
-	"dependencies": {
-		"com.beauprime.beauutil": "0.6.2",
-		"com.beauprime.beauroutine": "0.11.1"
-	}
+  "name": "com.beauprime.leaf",
+  "version": "0.2.0",
+  "displayName": "Leaf",
+  "description": "Leaf is a narrative-focused scripting language and runtime for Unity.",
+  "unity": "2019.3",
+  "author": {
+    "name": "Autumn Beauchesne",
+    "email": "beauchesne@beauprime.com",
+    "url": "beauprime.com"
+  },
+  "dependencies": {
+    "com.beauprime.beauutil": "0.6.3",
+    "com.beauprime.beauroutine": "0.11.1"
+  }
 }

@@ -93,7 +93,7 @@ namespace Leaf
         /// <summary>
         /// Waits for the given number of seconds.
         /// </summary>
-        [LeafMember("Wait")]
+        [LeafMember("Wait"), UnityEngine.Scripting.Preserve]
         static public IEnumerator Wait(float inSeconds)
         {
             yield return inSeconds;
@@ -103,7 +103,7 @@ namespace Leaf
         /// Waits for the given number of seconds.
         /// This is in real time and does not account for time scale.
         /// </summary>
-        [LeafMember("WaitAbs")]
+        [LeafMember("WaitAbs"), UnityEngine.Scripting.Preserve]
         static public IEnumerator WaitAbs(float inSeconds)
         {
             return Routine.WaitRealSeconds(inSeconds);
@@ -271,5 +271,55 @@ namespace Leaf
         }
 
         #endregion // Default Parsing Configs
+    
+        #region Lookups
+
+        /// <summary>
+        /// Attempts to look up the line with the given code, first using the plugin
+        /// and falling back to searching the node's module.
+        /// </summary>
+        static public bool TryLookupLine(ILeafPlugin inPlugin, StringHash32 inLineCode, LeafNode inLocalNode, out string outLine)
+        {
+            if (!inPlugin.TryLookupLine(inLineCode, inLocalNode, out outLine))
+            {
+                var module = inLocalNode.Package();
+                return module.TryGetLine(inLineCode, out outLine);
+            }
+
+            return true;
+        }
+        
+        /// <summary>
+        /// Attempts to look up the node with the given id, first using the plugin
+        /// and falling back to searching the node's module.
+        /// </summary>
+        static public bool TryLookupNode<TNode>(ILeafPlugin<TNode> inPlugin, StringHash32 inNodeId, TNode inLocalNode, out TNode outNode)
+            where TNode : LeafNode
+        {
+            if (!inPlugin.TryLookupNode(inNodeId, inLocalNode, out outNode))
+            {
+                var module = inLocalNode.Package();
+                
+                LeafNode node;
+                bool bResult = module.TryGetNode(inNodeId, out node);
+                outNode = (TNode) node;
+                return bResult;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Attempts to look up a named object with the given id.
+        /// </summary>
+        static public bool TryLookupObject(ILeafPlugin inPlugin, StringHash32 inTargetId, LeafThreadState ioThreadState, out object outTarget)
+        {
+            if (ioThreadState != null)
+                return ioThreadState.TryLookupObject(inTargetId, out outTarget);
+
+            return inPlugin.TryLookupObject(inTargetId, ioThreadState, out outTarget);
+        }
+
+        #endregion // Lookups
     }
 }

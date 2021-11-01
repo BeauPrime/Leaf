@@ -17,6 +17,8 @@ namespace Leaf
     public interface ILeafPlugin : ILeafVariableAccess
     {
         IMethodCache MethodCache { get; }
+        bool TryLookupLine(StringHash32 inLineCode, LeafNode inLocalNode, out string outLine);
+        bool TryLookupObject(StringHash32 inObjectId, LeafThreadState inThreadState, out object outObject);
     }
 
     public interface ILeafPlugin<TNode> : ILeafPlugin
@@ -27,12 +29,10 @@ namespace Leaf
 
         void OnEnd(LeafThreadState<TNode> inThreadState);
 
-        bool TryLookupLine(StringHash32 inLineCode, TNode inLocalNode, out string outLine);
         bool TryLookupNode(StringHash32 inNodeId, TNode inLocalNode, out TNode outNode);
-        bool TryLookupObject(StringHash32 inObjectId, LeafThreadState<TNode> inThreadState, out object outObject);
 
-        IEnumerator RunLine(LeafThreadState<TNode> inThreadState, StringSlice inLine, ILeafContentResolver inContentResolver);
-        IEnumerator ShowOptions(LeafThreadState<TNode> inThreadState, LeafChoice inChoice, ILeafContentResolver inContentResolver);
+        IEnumerator RunLine(LeafThreadState<TNode> inThreadState, StringSlice inLine);
+        IEnumerator ShowOptions(LeafThreadState<TNode> inThreadState, LeafChoice inChoice);
         
         LeafThreadState<TNode> Fork(LeafThreadState<TNode> inParentThreadState, TNode inForkNode);
     }

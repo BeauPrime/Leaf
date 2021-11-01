@@ -18,23 +18,23 @@ namespace Leaf.Compiler
     /// <summary>
     /// Block parser for leaf nodes.
     /// </summary>
-    public abstract class LeafParser<TNode, TPackage> : AbstractBlockGenerator<TNode, TPackage>, ILeafCompilerPlugin<TNode>
+    public abstract class LeafParser<TNode, TPackage> : AbstractBlockGenerator<TNode, TPackage>, ILeafCompilerPlugin
         where TNode : LeafNode
         where TPackage : LeafNodePackage<TNode>
     {
         #region Compilers
 
-        private readonly RingBuffer<LeafCompiler<TNode>> m_AvailableCompilers = new RingBuffer<LeafCompiler<TNode>>();
+        private readonly RingBuffer<LeafCompiler> m_AvailableCompilers = new RingBuffer<LeafCompiler>();
 
-        private LeafCompiler<TNode> AllocCompiler()
+        private LeafCompiler AllocCompiler()
         {
             if (m_AvailableCompilers.Count <= 0)
-                return new LeafCompiler<TNode>(this);
+                return new LeafCompiler(this);
 
             return m_AvailableCompilers.PopBack();
         }
 
-        private void FreeCompiler(LeafCompiler<TNode> inCompiler)
+        private void FreeCompiler(LeafCompiler inCompiler)
         {
             m_AvailableCompilers.PushBack(inCompiler);
         }
@@ -120,22 +120,6 @@ namespace Leaf.Compiler
         public virtual bool CollapseContent
         {
             get { return false; }
-        }
-
-        /// <summary>
-        /// Compiles the given string into an expression.
-        /// </summary>
-        public virtual ILeafExpression<TNode> CompileExpression(StringSlice inExpression, LeafExpressionType inType)
-        {
-            return new DefaultLeafExpression<TNode>(inExpression, inType);
-        }
-
-        /// <summary>
-        /// Compiles the given method and arguments into an invocation.
-        /// </summary>
-        public virtual ILeafInvocation<TNode> CompileInvocation(StringSlice inMethod, StringSlice inArguments)
-        {
-            return new DefaultLeafInvocation<TNode>(inMethod, inArguments);
         }
 
         /// <summary>
