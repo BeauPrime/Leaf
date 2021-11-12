@@ -38,7 +38,7 @@ namespace Leaf.Runtime
             return StringParser.TryConvertTo(inData, inType, out outObject);
         }
 
-        private bool TryConvertInline(StringSlice inData, Type inType, object inContext, out object outObject)
+        static private bool TryConvertInline(StringSlice inData, Type inType, object inContext, out object outObject)
         {
             if (inData.StartsWith("$(") && inData.EndsWith(")"))
             {

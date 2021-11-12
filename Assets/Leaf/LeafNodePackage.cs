@@ -108,7 +108,12 @@ namespace Leaf
 
         internal void AddNode(TNode inNode)
         {
-            m_Nodes.Add(inNode.Id(), inNode);
+            StringHash32 nodeId = inNode.Id();
+            if (m_Nodes.ContainsKey(nodeId))
+            {
+                throw new ArgumentException(string.Format("LeafNodePackage '{0}' contains duplicated node id '{1}'", m_Name, nodeId.ToDebugString()));
+            }
+            m_Nodes.Add(nodeId, inNode);
         }
 
         #endregion // Modifications
