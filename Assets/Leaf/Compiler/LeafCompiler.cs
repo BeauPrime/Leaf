@@ -341,7 +341,7 @@ namespace Leaf.Compiler
 
         private readonly Dictionary<StringHash32, string> m_PackageLines = new Dictionary<StringHash32, string>(32);
 
-        private readonly RingBuffer<byte> m_InstructionStream = new RingBuffer<byte>(1024);
+        private readonly RingBuffer<byte> m_InstructionStream = new RingBuffer<byte>(1024, RingBufferMode.Expand);
         private readonly List<string> m_StringTable = new List<string>(32);
         private readonly List<LeafExpression> m_ExpressionTable = new List<LeafExpression>(32);
 
@@ -438,7 +438,10 @@ namespace Leaf.Compiler
 
             ioNode.SetInstructionOffsets(m_CurrentNodeInstructionOffset, m_CurrentNodeInstructionLength);
 
-            WriteOp(LeafOpcode.NoOp);
+            if (m_Verbose)
+            {
+                WriteOp(LeafOpcode.NoOp);
+            }
 
             m_CurrentNodeId = null;
             m_HasChoices = false;
@@ -1134,7 +1137,7 @@ namespace Leaf.Compiler
             }
             else
             {
-                throw new SyntaxException(inPosition, "Expression '{0}' was unable to be evaluated");
+                throw new SyntaxException(inPosition, "Expression '{0}' was unable to be evaluated", inExpression);
             }
         }
 
