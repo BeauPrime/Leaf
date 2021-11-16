@@ -672,10 +672,12 @@ namespace Leaf.Compiler
             TagData data = default;
 
             int spaceIdx = inLine.IndexOf(' ');
-            if (spaceIdx >= 0)
+            int tabIdx = inLine.IndexOf('\t');
+            int seperatorIdx = spaceIdx == -1 ? tabIdx : (tabIdx == -1 ? spaceIdx : Math.Min(spaceIdx, tabIdx));
+            if (seperatorIdx >= 0)
             {
-                data.Id = inLine.Substring(0, spaceIdx).TrimEnd(TagData.MinimalWhitespaceChars);
-                data.Data = inLine.Substring(spaceIdx + 1).TrimStart(TagData.MinimalWhitespaceChars);
+                data.Id = inLine.Substring(0, seperatorIdx).TrimEnd(TagData.MinimalWhitespaceChars);
+                data.Data = inLine.Substring(seperatorIdx + 1).TrimStart(TagData.MinimalWhitespaceChars);
             }
             else
             {
