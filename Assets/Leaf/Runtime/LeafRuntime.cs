@@ -12,7 +12,6 @@ using System.Collections;
 using BeauUtil;
 using BeauUtil.Debugger;
 using BeauUtil.Variants;
-using UnityEngine;
 
 namespace Leaf.Runtime
 {
@@ -24,579 +23,663 @@ namespace Leaf.Runtime
         /// <summary>
         /// Evaluates the given node, using the provided thread state.
         /// </summary>
-        static public IEnumerator Execute<TNode>(ILeafPlugin<TNode> inPlugin, LeafThreadState<TNode> ioThreadState, TNode inNode)
+        static public IEnumerator Execute<TNode>(LeafThreadState<TNode> ioThreadState, TNode inNode)
             where TNode : LeafNode
         {
             if (inNode == null)
                 return null;
             
             ioThreadState.PushNode(inNode);
-            return Execute(inPlugin, ioThreadState);
+            return Execute(ioThreadState);
         }
 
         /// <summary>
         /// Executes the given thread.
         /// </summary>
-        static public IEnumerator Execute<TNode>(ILeafPlugin<TNode> inPlugin, LeafThreadState<TNode> ioThreadState)
+        static public IEnumerator Execute<TNode>(LeafThreadState<TNode> ioThreadState)
             where TNode : LeafNode
         {
-            TNode node;
-            uint pc;
-            LeafOpcode op;
-            LeafInstructionBlock block;
-            while (ioThreadState.HasNodes())
+            return ioThreadState.GetExecutor();
+        }
+
+        internal sealed class Executor<TNode> : IEnumerator, IDisposable
+            where TNode : LeafNode
+        {
+            private const int State_Default = 0;
+            private const int State_Choose = 1;
+            private const int State_Join = 2;
+            private const int State_Done = -1;
+
+            public readonly ILeafPlugin<TNode> Plugin;
+            public readonly LeafThreadState<TNode> Thread;
+            public IEnumerator Wait;
+            public int State;
+            public LeafThreadState.RegisterState Registers;
+
+            public Executor(ILeafPlugin<TNode> inPlugin, LeafThreadState<TNode> inThreadState)
             {
-                ioThreadState.ReadState(out node, out pc);
+                Plugin = inPlugin;
+                Thread = inThreadState;
+            }
 
-                block = node.Package().m_Instructions;
+            public object Current { get { return Wait; } }
 
-                // if we've exceeded our frame, pop out
-                if (pc >= node.m_InstructionOffset + node.m_InstructionCount)
+            public void Dispose() { }
+
+            public bool MoveNext()
+            {
+                if (State == State_Done)
                 {
-                    ioThreadState.PopNode();
-                    continue;
+                    return false;
                 }
 
-                op = LeafInstruction.ReadOpcode(block.InstructionStream, ref pc);
+                TNode node;
+                uint pc;
+                LeafInstructionBlock block;
+                LeafOpcode op;
+                string line;
+                MethodCall method;
+                LeafChoice choice;
+                Wait = null;
 
-                switch (op)
+                switch(State)
                 {
-                    // TEXT
-
-                    case LeafOpcode.RunLine:
+                    case State_Choose:
                         {
-                            StringHash32 lineCode = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            string line;
-                            if (LeafUtils.TryLookupLine(inPlugin, lineCode, node, out line))
-                            {
-                                IEnumerator process = inPlugin.RunLine(ioThreadState, line);
-                                if (process != null)
-                                    yield return process;
-                            }
-                            else
-                            {
-                                Log.Error("[LeafRuntime] Could not locate line '{0}' from node '{1}'", lineCode, node.Id());
-                            }
+                            Registers.B0_Variant = Thread.GetChosenOption();
+                            Thread.ResetOptions();
+                            Thread.PushValue(Registers.B0_Variant);
+                            State = State_Default;
                             break;
                         }
-
-                    // EXPRESSIONS
-
-                    case LeafOpcode.EvaluateSingleExpression:
+                    case State_Join:
                         {
-                            uint expressionIdx = LeafInstruction.ReadUInt32(block.InstructionStream, ref pc);
-                            ioThreadState.WriteProgramCounter(pc);
+                            // TODO: Better check??
+                            if (Thread.HasChildren())
+                            {
+                                return true;
+                            }
 
-                            Variant result = EvaluateValueExpression(inPlugin, ref block.ExpressionTable[expressionIdx], ioThreadState, block.StringTable);
-                            ioThreadState.PushValue(result);
+                            State = State_Default;
                             break;
                         }
+                }
+                State = State_Default;
 
-                    case LeafOpcode.EvaluateExpressionsAnd:
-                        {
-                            uint expressionOffset = LeafInstruction.ReadUInt32(block.InstructionStream, ref pc);
-                            ushort expressionCount = LeafInstruction.ReadUInt16(block.InstructionStream, ref pc);
-                            ioThreadState.WriteProgramCounter(pc);
+                while(Thread.HasNodes())
+                {
+                    Thread.ReadState(out node, out pc);
+                    block = node.Package().m_Instructions;
 
-                            bool bLocal;
-                            bool bResult = true;
-                            for(ushort i = 0; i < expressionCount; i++)
+                    if (pc >= node.m_InstructionOffset + node.m_InstructionCount)
+                    {
+                        Thread.PopNode();
+                        continue;
+                    }
+
+                    op = LeafInstruction.ReadOpcode(block.InstructionStream, ref pc);
+
+                    switch (op)
+                    {
+                        // TEXT
+
+                        case LeafOpcode.RunLine:
                             {
-                                bLocal = EvaluateLogicalExpression(inPlugin, ref block.ExpressionTable[expressionOffset + i], ioThreadState, block.StringTable);
-                                if (!bLocal)
+                                Registers.B1_Identifier  = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                                Thread.WriteProgramCounter(pc);
+
+                                if (LeafUtils.TryLookupLine(Plugin, Registers.B1_Identifier, node, out line))
                                 {
-                                    bResult = false;
-                                    break;
+                                    Wait = Plugin.RunLine(Thread, line);
+                                    if (Wait != null)
+                                    {
+                                        return true;
+                                    }
                                 }
-                            }
-
-                            ioThreadState.PushValue(bResult);
-                            break;
-                        }
-
-                    case LeafOpcode.EvaluateExpressionsOr:
-                        {
-                            uint expressionOffset = LeafInstruction.ReadUInt32(block.InstructionStream, ref pc);
-                            ushort expressionCount = LeafInstruction.ReadUInt16(block.InstructionStream, ref pc);
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            bool bLocal;
-                            bool bResult = false;
-                            for(ushort i = 0; i < expressionCount; i++)
-                            {
-                                bLocal = EvaluateLogicalExpression(inPlugin, ref block.ExpressionTable[expressionOffset + i], ioThreadState, block.StringTable);
-                                if (bLocal)
+                                else
                                 {
-                                    bResult = true;
-                                    break;
+                                    Log.Error("[LeafRuntime] Could not locate line '{0}' from node '{1}'", Registers.B1_Identifier, node.Id());
                                 }
-                            }
-
-                            ioThreadState.PushValue(bResult);
-                            break;
-                        }
-
-                    case LeafOpcode.EvaluateExpressionsGroup:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            // TODO: Implement
-                            break;
-                        }
-                    
-                    // INVOCATIONS
-
-                    case LeafOpcode.Invoke:
-                        {
-                            MethodCall invocation;
-                            invocation.Id = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
-                            invocation.Args = LeafInstruction.ReadStringTableString(block.InstructionStream, ref pc, block.StringTable);
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            IEnumerator process = Invoke(inPlugin, invocation, ioThreadState, null);
-                            if (process != null)
-                                yield return process;
-                            break;
-                        }
-
-                    case LeafOpcode.InvokeWithReturn:
-                        {
-                            MethodCall invocation;
-                            invocation.Id = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
-                            invocation.Args = LeafInstruction.ReadStringTableString(block.InstructionStream, ref pc, block.StringTable);
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            Variant result = InvokeWithReturn(inPlugin, invocation, ioThreadState, null);
-                            ioThreadState.PushValue(result);
-                            break;
-                        }
-
-                    case LeafOpcode.InvokeWithTarget:
-                        {
-                            MethodCall invocation;
-                            invocation.Id = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
-                            invocation.Args = LeafInstruction.ReadStringTableString(block.InstructionStream, ref pc, block.StringTable);
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            StringHash32 objectId = ioThreadState.PopValue().AsStringHash();
-                            object target;
-
-                            if (!LeafUtils.TryLookupObject(inPlugin, objectId, ioThreadState, out target))
-                            {
-                                Log.Warn("[LeafRuntime] Could not locate target {0} from node '{1}'", objectId, node.Id());
                                 break;
                             }
 
-                            IEnumerator process = Invoke(inPlugin, invocation, ioThreadState, target);
-                            if (process != null)
-                                yield return process;
-                            break;
-                        }
+                        // EXPRESSIONS
+
+                        case LeafOpcode.EvaluateSingleExpression:
+                            {
+                                Registers.B0_Offset = LeafInstruction.ReadUInt32(block.InstructionStream, ref pc);
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = EvaluateValueExpression(Plugin, ref block.ExpressionTable[Registers.B0_Offset], Thread, block.StringTable);
+                                Thread.PushValue(Registers.B0_Variant);
+                                break;
+                            }
+
+                        case LeafOpcode.EvaluateExpressionsAnd:
+                            {
+                                Registers.B0_Offset = LeafInstruction.ReadUInt32(block.InstructionStream, ref pc);
+                                Registers.B0_Count = LeafInstruction.ReadUInt16(block.InstructionStream, ref pc);
+                                Thread.WriteProgramCounter(pc);
+
+                                bool bResult = true;
+                                for(ushort i = 0; i < Registers.B0_Count; i++)
+                                {
+                                    if (!EvaluateLogicalExpression(Plugin, ref block.ExpressionTable[Registers.B0_Offset + i], Thread, block.StringTable))
+                                    {
+                                        bResult = false;
+                                        break;
+                                    }
+                                }
+
+                                Thread.PushValue(bResult);
+                                break;
+                            }
+
+                        case LeafOpcode.EvaluateExpressionsOr:
+                            {
+                                Registers.B0_Offset = LeafInstruction.ReadUInt32(block.InstructionStream, ref pc);
+                                Registers.B0_Count = LeafInstruction.ReadUInt16(block.InstructionStream, ref pc);
+                                Thread.WriteProgramCounter(pc);
+
+                                bool bResult = false;
+                                for(ushort i = 0; i < Registers.B0_Count; i++)
+                                {
+                                    if (EvaluateLogicalExpression(Plugin, ref block.ExpressionTable[Registers.B0_Offset + i], Thread, block.StringTable))
+                                    {
+                                        bResult = true;
+                                        break;
+                                    }
+                                }
+
+                                Thread.PushValue(bResult);
+                                break;
+                            }
+
+                        case LeafOpcode.EvaluateExpressionsGroup:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                // TODO: Implement
+                                break;
+                            }
+                        
+                        // INVOCATIONS
+
+                        case LeafOpcode.Invoke:
+                            {
+                                method.Id = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                                method.Args = LeafInstruction.ReadStringTableString(block.InstructionStream, ref pc, block.StringTable);
+                                Thread.WriteProgramCounter(pc);
+
+                                Wait = Invoke(Plugin, method, Thread, null);
+                                if (Wait != null)
+                                {
+                                    return true;
+                                }
+                                break;
+                            }
+
+                        case LeafOpcode.InvokeWithReturn:
+                            {
+                                method.Id = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                                method.Args = LeafInstruction.ReadStringTableString(block.InstructionStream, ref pc, block.StringTable);
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = InvokeWithReturn(Plugin, method, Thread, null);
+                                Thread.PushValue(Registers.B0_Variant);
+                                break;
+                            }
+
+                        case LeafOpcode.InvokeWithTarget:
+                            {
+                                method.Id = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                                method.Args = LeafInstruction.ReadStringTableString(block.InstructionStream, ref pc, block.StringTable);
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B1_Identifier = Thread.PopValue().AsStringHash();
+                                object target;
+
+                                if (!LeafUtils.TryLookupObject(Plugin, Registers.B1_Identifier, Thread, out target))
+                                {
+                                    Log.Warn("[LeafRuntime] Could not locate target {0} from node '{1}'", Registers.B1_Identifier, node.Id());
+                                    break;
+                                }
+
+                                Wait = Invoke(Plugin, method, Thread, target);
+                                if (Wait != null)
+                                {
+                                    return true;
+                                }
+                                break;
+                            }
+                        
+                        // STACK
+
+                        case LeafOpcode.PushValue:
+                            {
+                                Registers.B0_Variant = LeafInstruction.ReadVariant(block.InstructionStream, ref pc);
+                                Thread.WriteProgramCounter(pc);
+
+                                Thread.PushValue(Registers.B0_Variant);
+                                break;
+                            }
+
+                        case LeafOpcode.PopValue:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                Thread.PopValue();
+                                break;
+                            }
+
+                        case LeafOpcode.DuplicateValue:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = Thread.PeekValue();
+                                Thread.PushValue(Registers.B0_Variant);
+                                break;
+                            }
+
+                        // MEMORY
+
+                        case LeafOpcode.LoadTableValue:
+                            {
+                                Registers.B1_TableKey = LeafInstruction.ReadTableKeyPair(block.InstructionStream, ref pc);
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = Thread.GetVariable(Registers.B1_TableKey, Thread); 
+                                Thread.PushValue(Registers.B0_Variant);
+                                break;
+                            }
+
+                        case LeafOpcode.StoreTableValue:
+                            {
+                                Registers.B1_TableKey = LeafInstruction.ReadTableKeyPair(block.InstructionStream, ref pc);
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = Thread.PopValue(); 
+                                Thread.SetVariable(Registers.B1_TableKey, Registers.B0_Variant, Thread);
+                                break;
+                            }
+
+                        case LeafOpcode.IncrementTableValue:
+                            {
+                                Registers.B1_TableKey = LeafInstruction.ReadTableKeyPair(block.InstructionStream, ref pc);
+                                Thread.WriteProgramCounter(pc);
+
+                                Thread.IncrementVariable(Registers.B1_TableKey, 1, Thread);
+                                break;
+                            }
+
+                        // ARITHMETIC
+
+                        case LeafOpcode.Add:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = Thread.PopValue();
+                                Registers.B2_Variant = Thread.PopValue();
+                                Registers.B3_Variant = Registers.B0_Variant + Registers.B2_Variant;
+                                Thread.PushValue(Registers.B3_Variant);
+
+                                break;
+                            }
+
+                        case LeafOpcode.Subtract:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = Thread.PopValue();
+                                Registers.B2_Variant = Thread.PopValue();
+                                Registers.B3_Variant = Registers.B2_Variant - Registers.B0_Variant;
+                                Thread.PushValue(Registers.B3_Variant);
+
+                                break;
+                            }
+
+                        case LeafOpcode.Multiply:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = Thread.PopValue();
+                                Registers.B2_Variant = Thread.PopValue();
+                                Registers.B3_Variant = Registers.B0_Variant * Registers.B2_Variant;
+                                Thread.PushValue(Registers.B3_Variant);
+
+                                break;
+                            }
+
+                        case LeafOpcode.Divide:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = Thread.PopValue();
+                                Registers.B2_Variant = Thread.PopValue();
+                                Registers.B3_Variant = Registers.B2_Variant / Registers.B0_Variant;
+                                Thread.PushValue(Registers.B3_Variant);
+
+                                break;
+                            }
+
+                        // LOGICAL OPERATORS
+
+                        case LeafOpcode.Not:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = Thread.PopValue();
+                                Registers.B2_Variant = !Registers.B0_Variant.AsBool();
+                                Thread.PushValue(Registers.B2_Variant);
+                                break;
+                            }
+
+                        case LeafOpcode.CastToBool:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = Thread.PopValue().AsBool();
+                                Thread.PushValue(Registers.B0_Variant);
+                                break;
+                            }
+
+                        case LeafOpcode.LessThan:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = Thread.PopValue();
+                                Registers.B2_Variant = Thread.PopValue();
+                                Registers.B3_Variant = Registers.B2_Variant < Registers.B0_Variant;
+                                Thread.PushValue(Registers.B3_Variant);
+                                break;
+                            }
+
+                        case LeafOpcode.LessThanOrEqualTo:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = Thread.PopValue();
+                                Registers.B2_Variant = Thread.PopValue();
+                                Registers.B3_Variant = Registers.B2_Variant <= Registers.B0_Variant;
+                                Thread.PushValue(Registers.B3_Variant);
+                                break;
+                            }
+
+                        case LeafOpcode.EqualTo:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = Thread.PopValue();
+                                Registers.B2_Variant = Thread.PopValue();
+                                Registers.B3_Variant = Registers.B2_Variant == Registers.B0_Variant;
+                                Thread.PushValue(Registers.B3_Variant);
+                                break;
+                            }
+
+                        case LeafOpcode.NotEqualTo:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = Thread.PopValue();
+                                Registers.B2_Variant = Thread.PopValue();
+                                Registers.B3_Variant = Registers.B2_Variant != Registers.B0_Variant;
+                                Thread.PushValue(Registers.B2_Variant);
+                                break;
+                            }
+
+                        case LeafOpcode.GreaterThanOrEqualTo:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = Thread.PopValue();
+                                Registers.B2_Variant = Thread.PopValue();
+                                Registers.B3_Variant = Registers.B2_Variant >= Registers.B0_Variant;
+                                Thread.PushValue(Registers.B3_Variant);
+                                break;
+                            }
+
+                        case LeafOpcode.GreaterThan:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = Thread.PopValue();
+                                Registers.B2_Variant = Thread.PopValue();
+                                Registers.B3_Variant = Registers.B2_Variant > Registers.B0_Variant;
+                                Thread.PushValue(Registers.B3_Variant);
+                                break;
+                            }
+                        
+                        // JUMPS
+
+                        case LeafOpcode.Jump:
+                            {
+                                Registers.B0_JumpShort = LeafInstruction.ReadInt16(block.InstructionStream, ref pc);
+                                Thread.WriteProgramCounter(pc);
+
+                                Thread.JumpRelative(Registers.B0_JumpShort);
+                                break;
+                            }
+
+                        case LeafOpcode.JumpIfFalse:
+                            {
+                                Registers.B0_JumpShort = LeafInstruction.ReadInt16(block.InstructionStream, ref pc);
+                                Thread.WriteProgramCounter(pc);
+
+                                if (!Thread.PopValue().AsBool())
+                                {
+                                    Thread.JumpRelative(Registers.B0_JumpShort);
+                                }
+                                break;
+                            }
+
+                        case LeafOpcode.JumpIndirect:
+                            {
+                                Thread.WriteProgramCounter(pc);
+                                
+                                Registers.B0_JumpLong = Thread.PopValue().AsInt();
+                                Thread.JumpRelative(Registers.B0_JumpLong);
+                                break;
+                            }
+
+                        // FLOW CONTROL
+
+                        case LeafOpcode.GotoNode:
+                            {
+                                Registers.B1_Identifier = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                                Thread.WriteProgramCounter(pc);
+
+                                TryGotoNode(Plugin, Thread, node, Registers.B1_Identifier);
+                                break;
+                            }
+
+                        case LeafOpcode.GotoNodeIndirect:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B1_Identifier = Thread.PopValue().AsStringHash();
+                                TryGotoNode(Plugin, Thread, node, Registers.B1_Identifier);
+                                break;
+                            }
+
+                        case LeafOpcode.BranchNode:
+                            {
+                                Registers.B1_Identifier = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                                Thread.WriteProgramCounter(pc);
+
+                                TryBranchNode(Plugin, Thread, node, Registers.B1_Identifier);
+                                break;
+                            }
+
+                        case LeafOpcode.BranchNodeIndirect:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B1_Identifier = Thread.PopValue().AsStringHash();
+                                TryBranchNode(Plugin, Thread, node, Registers.B1_Identifier);
+                                break;
+                            }
+
+                        case LeafOpcode.ReturnFromNode:
+                            {
+                                Thread.PopNode();
+                                break;
+                            }
+
+                        case LeafOpcode.Stop:
+                            {
+                                Thread.ClearNodes();
+                                break;
+                            }
+
+                        case LeafOpcode.Loop:
+                            {
+                                Thread.ResetProgramCounter();
+                                break;
+                            }
+
+                        case LeafOpcode.Yield:
+                            {
+                                Thread.WriteProgramCounter(pc);
+                                return true;
+                            }
+
+                        // FORKING
+
+                        case LeafOpcode.ForkNode:
+                            {
+                                Registers.B1_Identifier = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                                Thread.WriteProgramCounter(pc);
+
+                                TryForkNode(Plugin, Thread, node, Registers.B1_Identifier, true);
+                                break;
+                            }
+
+                        case LeafOpcode.ForkNodeIndirect:
+                            {
+                                Thread.WriteProgramCounter(pc);
+                                
+                                Registers.B1_Identifier = Thread.PopValue().AsStringHash();
+                                TryForkNode(Plugin, Thread, node, Registers.B1_Identifier, true);
+                                break;
+                            }
+
+                        case LeafOpcode.ForkNodeUntracked:
+                            {
+                                Registers.B1_Identifier = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                                Thread.WriteProgramCounter(pc);
+
+                                TryForkNode(Plugin, Thread, node, Registers.B1_Identifier, false);
+                                break;
+                            }
+
+                        case LeafOpcode.ForkNodeIndirectUntracked:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B1_Identifier = Thread.PopValue().AsStringHash();
+                                TryForkNode(Plugin, Thread, node, Registers.B1_Identifier, false);
+                                break;
+                            }
+
+                        case LeafOpcode.JoinForks:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                if (Thread.HasChildren())
+                                {
+                                    State = State_Join;
+                                    return true;
+                                }
+                                break;
+                            }
+
+                        // CHOICES
+
+                        case LeafOpcode.AddChoiceOption:
+                            {
+                                Registers.B1_Identifier = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                                Registers.B0_Byte = LeafInstruction.ReadByte(block.InstructionStream, ref pc);
+                                Thread.WriteProgramCounter(pc);
+
+                                if (Thread.PopValue().AsBool())
+                                {
+                                    Registers.B0_Byte |= (byte) LeafChoice.OptionFlags.IsAvailable;
+                                }
+                                Registers.B2_Variant = Thread.PopValue();
+
+                                Thread.AddOption(Registers.B2_Variant, Registers.B1_Identifier, (LeafChoice.OptionFlags) Registers.B0_Byte);
+                                break;
+                            }
+
+                        case LeafOpcode.AddChoiceAnswer:
+                            {
+                                Registers.B1_Identifier = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = Thread.PopValue();
+                                Thread.AddOptionAnswer(Registers.B1_Identifier, Registers.B0_Variant);
+                                break;
+                            }
+
+                        case LeafOpcode.ShowChoices:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                choice = Thread.GetOptions();
+                                if (choice.AvailableCount > 0)
+                                {
+                                    Wait = Plugin.ShowOptions(Thread, choice);
+                                    if (Wait != null)
+                                    {
+                                        State = State_Choose;
+                                        return true;
+                                    }
+
+                                    Registers.B0_Variant = choice.ChosenTarget();
+                                    choice.Reset();
+                                    Thread.PushValue(Registers.B0_Variant);
+                                }
+                                else
+                                {
+                                    choice.Reset();
+                                    Thread.PushValue(Variant.Null);
+                                }
+                                break;
+                            }
                     
-                    // STACK
-
-                    case LeafOpcode.PushValue:
-                        {
-                            Variant value = LeafInstruction.ReadVariant(block.InstructionStream, ref pc);
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            ioThreadState.PushValue(value);
-                            break;
-                        }
-
-                    case LeafOpcode.PopValue:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            ioThreadState.PopValue();
-                            break;
-                        }
-
-                    case LeafOpcode.DuplicateValue:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            Variant current = ioThreadState.PeekValue();
-                            ioThreadState.PushValue(current);
-                            break;
-                        }
-
-                    // MEMORY
-
-                    case LeafOpcode.LoadTableValue:
-                        {
-                            TableKeyPair keyPair = LeafInstruction.ReadTableKeyPair(block.InstructionStream, ref pc);
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            Variant value = ioThreadState.GetVariable(keyPair, ioThreadState); 
-                            ioThreadState.PushValue(value);
-                            break;
-                        }
-
-                    case LeafOpcode.StoreTableValue:
-                        {
-                            TableKeyPair keyPair = LeafInstruction.ReadTableKeyPair(block.InstructionStream, ref pc);
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            Variant value = ioThreadState.PopValue(); 
-                            ioThreadState.SetVariable(keyPair, value, ioThreadState);
-                            break;
-                        }
-
-                    case LeafOpcode.IncrementTableValue:
-                        {
-                            TableKeyPair keyPair = LeafInstruction.ReadTableKeyPair(block.InstructionStream, ref pc);
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            ioThreadState.IncrementVariable(keyPair, 1, ioThreadState);
-                            break;
-                        }
-
-                    // ARITHMETIC
-
-                    case LeafOpcode.Add:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            Variant a = ioThreadState.PopValue();
-                            Variant b = ioThreadState.PopValue();
-                            Variant c = a + b;
-                            ioThreadState.PushValue(c);
-
-                            break;
-                        }
-
-                    case LeafOpcode.Subtract:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            Variant a = ioThreadState.PopValue();
-                            Variant b = ioThreadState.PopValue();
-                            Variant c = b - a;
-                            ioThreadState.PushValue(c);
-
-                            break;
-                        }
-
-                    case LeafOpcode.Multiply:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            Variant a = ioThreadState.PopValue();
-                            Variant b = ioThreadState.PopValue();
-                            Variant c = a * b;
-                            ioThreadState.PushValue(c);
-
-                            break;
-                        }
-
-                    case LeafOpcode.Divide:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            Variant a = ioThreadState.PopValue();
-                            Variant b = ioThreadState.PopValue();
-                            Variant c = b / a;
-                            ioThreadState.PushValue(c);
-
-                            break;
-                        }
-
-                    // LOGICAL OPERATORS
-
-                    case LeafOpcode.Not:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            Variant a = ioThreadState.PopValue();
-                            Variant b = !a.AsBool();
-                            ioThreadState.PushValue(b);
-                            break;
-                        }
-
-                    case LeafOpcode.CastToBool:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            Variant a = ioThreadState.PopValue().AsBool();
-                            ioThreadState.PushValue(a);
-                            break;
-                        }
-
-                    case LeafOpcode.LessThan:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            Variant a = ioThreadState.PopValue();
-                            Variant b = ioThreadState.PopValue();
-                            Variant c = b < a;
-                            ioThreadState.PushValue(c);
-                            break;
-                        }
-
-                    case LeafOpcode.LessThanOrEqualTo:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            Variant a = ioThreadState.PopValue();
-                            Variant b = ioThreadState.PopValue();
-                            Variant c = b <= a;
-                            ioThreadState.PushValue(c);
-                            break;
-                        }
-
-                    case LeafOpcode.EqualTo:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            Variant a = ioThreadState.PopValue();
-                            Variant b = ioThreadState.PopValue();
-                            Variant c = b == a;
-                            ioThreadState.PushValue(c);
-                            break;
-                        }
-
-                    case LeafOpcode.NotEqualTo:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            Variant a = ioThreadState.PopValue();
-                            Variant b = ioThreadState.PopValue();
-                            Variant c = b != a;
-                            ioThreadState.PushValue(c);
-                            break;
-                        }
-
-                    case LeafOpcode.GreaterThanOrEqualTo:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            Variant a = ioThreadState.PopValue();
-                            Variant b = ioThreadState.PopValue();
-                            Variant c = b >= a;
-                            ioThreadState.PushValue(c);
-                            break;
-                        }
-
-                    case LeafOpcode.GreaterThan:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            Variant a = ioThreadState.PopValue();
-                            Variant b = ioThreadState.PopValue();
-                            Variant c = b > a;
-                            ioThreadState.PushValue(c);
-                            break;
-                        }
-                    
-                    // JUMPS
-
-                    case LeafOpcode.Jump:
-                        {
-                            short relative = LeafInstruction.ReadInt16(block.InstructionStream, ref pc);
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            ioThreadState.JumpRelative(relative);
-                            break;
-                        }
-
-                    case LeafOpcode.JumpIfFalse:
-                        {
-                            short relative = LeafInstruction.ReadInt16(block.InstructionStream, ref pc);
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            bool bValue = ioThreadState.PopValue().AsBool();
-                            if (!bValue)
+                        case LeafOpcode.NoOp:
                             {
-                                ioThreadState.JumpRelative(relative);
+                                break;
                             }
-                            break;
-                        }
 
-                    case LeafOpcode.JumpIndirect:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-                            
-                            int jump = ioThreadState.PopValue().AsInt();
-                            ioThreadState.JumpRelative(jump);
-                            break;
-                        }
-
-                    // FLOW CONTROL
-
-                    case LeafOpcode.GotoNode:
-                        {
-                            StringHash32 nodeId = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            TryGotoNode(inPlugin, ioThreadState, node, nodeId);
-                            break;
-                        }
-
-                    case LeafOpcode.GotoNodeIndirect:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            StringHash32 nodeId = ioThreadState.PopValue().AsStringHash();
-                            TryGotoNode(inPlugin, ioThreadState, node, nodeId);
-                            break;
-                        }
-
-                    case LeafOpcode.BranchNode:
-                        {
-                            StringHash32 nodeId = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            TryBranchNode(inPlugin, ioThreadState, node, nodeId);
-                            break;
-                        }
-
-                    case LeafOpcode.BranchNodeIndirect:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            StringHash32 nodeId = ioThreadState.PopValue().AsStringHash();
-                            TryBranchNode(inPlugin, ioThreadState, node, nodeId);
-                            break;
-                        }
-
-                    case LeafOpcode.ReturnFromNode:
-                        {
-                            ioThreadState.PopNode();
-                            break;
-                        }
-
-                    case LeafOpcode.Stop:
-                        {
-                            ioThreadState.ClearNodes();
-                            break;
-                        }
-
-                    case LeafOpcode.Loop:
-                        {
-                            ioThreadState.ResetProgramCounter();
-                            break;
-                        }
-
-                    case LeafOpcode.Yield:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-                            yield return null;
-                            break;
-                        }
-
-                    // FORKING
-
-                    case LeafOpcode.ForkNode:
-                        {
-                            StringHash32 nodeId = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            TryForkNode(inPlugin, ioThreadState, node, nodeId, true);
-                            break;
-                        }
-
-                    case LeafOpcode.ForkNodeIndirect:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-                            
-                            StringHash32 nodeId = ioThreadState.PopValue().AsStringHash();
-                            TryForkNode(inPlugin, ioThreadState, node, nodeId, true);
-                            break;
-                        }
-
-                    case LeafOpcode.ForkNodeUntracked:
-                        {
-                            StringHash32 nodeId = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            TryForkNode(inPlugin, ioThreadState, node, nodeId, false);
-                            break;
-                        }
-
-                    case LeafOpcode.ForkNodeIndirectUntracked:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            StringHash32 nodeId = ioThreadState.PopValue().AsStringHash();
-                            TryForkNode(inPlugin, ioThreadState, node, nodeId, false);
-                            break;
-                        }
-
-                    case LeafOpcode.JoinForks:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            // TODO: Maybe a better way to wait?
-                            while(ioThreadState.HasChildren())
-                                yield return null;
-                            break;
-                        }
-
-                    // CHOICES
-
-                    case LeafOpcode.AddChoiceOption:
-                        {
-                            StringHash32 textId = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
-                            LeafChoice.OptionFlags flags = (LeafChoice.OptionFlags) LeafInstruction.ReadByte(block.InstructionStream, ref pc);
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            bool bAvailable = ioThreadState.PopValue().AsBool();
-                            Variant nodeId = ioThreadState.PopValue();
-
-                            if (bAvailable)
+                        default:
                             {
-                                flags |= LeafChoice.OptionFlags.IsAvailable;
+                                throw new InvalidOperationException("Unrecognized opcode " + op);
                             }
-                            ioThreadState.AddOption(nodeId, textId, flags);
-                            break;
-                        }
-
-                    case LeafOpcode.AddChoiceAnswer:
-                        {
-                            StringHash32 answerId = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            Variant nodeId = ioThreadState.PopValue();
-                            ioThreadState.AddOptionAnswer(answerId, nodeId);
-                            break;
-                        }
-
-                    case LeafOpcode.ShowChoices:
-                        {
-                            ioThreadState.WriteProgramCounter(pc);
-
-                            LeafChoice currentChoice = ioThreadState.GetOptions();
-                            if (currentChoice.AvailableCount > 0)
-                            {
-                                yield return inPlugin.ShowOptions(ioThreadState, currentChoice);
-                                Variant chosenNode = currentChoice.ChosenTarget();
-                                currentChoice.Reset();
-                                ioThreadState.PushValue(chosenNode);
-                            }
-                            else
-                            {
-                                currentChoice.Reset();
-                                ioThreadState.PushValue(Variant.Null);
-                            }
-                            break;
-                        }
-                
-                    case LeafOpcode.NoOp:
-                        {
-                            break;
-                        }
-
-                    default:
-                        {
-                            throw new InvalidOperationException("Unrecognized opcode " + op);
-                        }
+                    }
                 }
+
+                Plugin.OnEnd(Thread);
+                return false;
             }
 
-            inPlugin.OnEnd(ioThreadState);
+            public void Cleanup()
+            {
+                State = State_Done;
+                IDisposable disposableWait = Wait as IDisposable;
+                if (disposableWait != null)
+                {
+                    disposableWait.Dispose();
+                }
+                Wait = null;
+                Registers = default;
+            }
+
+            public void Reset()
+            {
+                State = State_Default;
+                Wait = null;
+            }
         }
 
         #region Small Operations

@@ -9,6 +9,7 @@
 
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Text;
 using BeauRoutine;
 using BeauUtil;
@@ -272,6 +273,45 @@ namespace Leaf
 
         #endregion // Default Parsing Configs
     
+        #region Node Parsing
+
+        private sealed class CachedListParseResources
+        {
+            public readonly StringSlice.ISplitter Splitter = new StringUtils.ArgsList.Splitter();
+            public readonly List<StringSlice> ArgsList = new List<StringSlice>(16);
+        }
+
+        [ThreadStatic] static private CachedListParseResources s_ListParseResources;
+
+        /// <summary>
+        /// Parses a comma-separated list into an array of conditions.
+        /// </summary>
+        static public VariantComparison[] ParseConditionsList(StringSlice inConditionsList)
+        {
+            CachedListParseResources resources = (s_ListParseResources ?? (s_ListParseResources = new CachedListParseResources()));
+            resources.ArgsList.Clear();
+            int conditionsCount = inConditionsList.Split(resources.Splitter, StringSplitOptions.RemoveEmptyEntries, resources.ArgsList);
+            if (conditionsCount > 0)
+            {
+                VariantComparison[] comparisons = new VariantComparison[conditionsCount];
+                for(int i = 0; i < conditionsCount; ++i)
+                {
+                    if (!VariantComparison.TryParse(resources.ArgsList[i], out comparisons[i]))
+                    {
+                        Log.Error("[LeafUtils] Unable to parse condition '{0}'", resources.ArgsList[i]);
+                    }
+                }
+
+                resources.ArgsList.Clear();
+                return comparisons;
+            }
+
+            resources.ArgsList.Clear();
+            return Array.Empty<VariantComparison>();
+        }
+
+        #endregion // Node Parsing
+
         #region Lookups
 
         /// <summary>

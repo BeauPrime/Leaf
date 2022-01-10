@@ -137,7 +137,7 @@ namespace Leaf
         }
 
         /// <summary>
-        /// Adds an answer to the last choice.
+        /// Adds an answer to the last option.
         /// </summary>
         public void AddAnswer(Answer inAnswer)
         {
@@ -173,6 +173,30 @@ namespace Leaf
         }
 
         /// <summary>
+        /// Returns if an option with the given target exists.
+        /// </summary>
+        public bool HasOption(Variant inTargetId)
+        {
+            return IndexOf(inTargetId) >= 0;
+        }
+
+        /// <summary>
+        /// Returns if an answer with the given target id and answer id exists.
+        /// </summary>
+        public bool HasAnswer(Variant inTargetId, Variant inAnswerId)
+        {
+            int index = IndexOf(inTargetId);
+            if (index >= 0)
+            {
+                bool bDefault;
+                GetAnswerResponse(index, inAnswerId, out bDefault);
+                return !bDefault;
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Locks options in place to present.
         /// </summary>
         public void Offer()
@@ -183,7 +207,7 @@ namespace Leaf
         }
 
         /// <summary>
-        /// Chooses the option with the given node id.
+        /// Chooses the option with the given target id.
         /// </summary>
         public void Choose(Variant inTargetId)
         {
@@ -203,7 +227,7 @@ namespace Leaf
         }
 
         /// <summary>
-        /// Chooses the option with the given node id and answer id.
+        /// Chooses the option with the given target id and answer id.
         /// </summary>
         public void Choose(Variant inTargetId, Variant inAnswerId)
         {
@@ -213,8 +237,9 @@ namespace Leaf
             int index = IndexOf(inTargetId);
             if (index >= 0)
             {
+                bool _;
                 m_ChosenIndex = index;
-                m_ChosenOption = GetAnswerResponse(index, inAnswerId);
+                m_ChosenOption = GetAnswerResponse(index, inAnswerId, out _);
                 m_State = State.Chosen;
                 return;
             }
@@ -247,8 +272,9 @@ namespace Leaf
             if (inIndex < 0 || inIndex >= m_AllOptions.Count)
                 throw new ArgumentOutOfRangeException("inIndex");
             
+            bool _;
             m_ChosenIndex = inIndex;
-            m_ChosenOption = GetAnswerResponse(inIndex, inAnswerId);;
+            m_ChosenOption = GetAnswerResponse(inIndex, inAnswerId, out _);
             m_State = State.Chosen;
         }
 
@@ -261,7 +287,7 @@ namespace Leaf
         }
 
         /// <summary>
-        /// Returns the chosen option's node target.
+        /// Returns the chosen option's target id.
         /// </summary>
         public Variant ChosenTarget()
         {
@@ -302,7 +328,7 @@ namespace Leaf
             return -1;
         }
 
-        private Variant GetAnswerResponse(int inOptionIndex, Variant inAnswer)
+        private Variant GetAnswerResponse(int inOptionIndex, Variant inAnswer, out bool outbFound)
         {
             Option option = m_AllOptions[inOptionIndex];
             ListSlice<Answer> answers = new ListSlice<Answer>(m_AllAnswers, option.m_AnswersOffset, option.m_AnswersLength);
@@ -312,10 +338,12 @@ namespace Leaf
                 check = answers[i];
                 if (check.AnswerId == inAnswer)
                 {
+                    outbFound = true;
                     return check.TargetId;
                 }
             }
 
+            outbFound = false;
             return option.m_DefaultAnswerTarget;
         }
     }

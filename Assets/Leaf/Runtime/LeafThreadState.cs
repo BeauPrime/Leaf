@@ -18,6 +18,7 @@ using BeauRoutine;
 using System;
 using System.Collections;
 using BeauUtil.Tags;
+using System.Runtime.InteropServices;
 
 namespace Leaf.Runtime
 {
@@ -26,6 +27,28 @@ namespace Leaf.Runtime
     /// </summary>
     public abstract class LeafThreadState : ILeafVariableAccess
     {
+        [StructLayout(LayoutKind.Explicit)]
+        internal struct RegisterState
+        {
+            // 0-7
+            [FieldOffset(0)] public Variant B0_Variant;
+            [FieldOffset(0)] public byte B0_Byte;
+            [FieldOffset(2)] public ushort B0_Count;
+            [FieldOffset(2)] public short B0_JumpShort;
+            [FieldOffset(4)] public uint B0_Offset;
+            [FieldOffset(4)] public int B0_JumpLong;
+
+            // 8-15
+            [FieldOffset(8)] public TableKeyPair B1_TableKey;
+            [FieldOffset(12)] public StringHash32 B1_Identifier;
+
+            // 16-23
+            [FieldOffset(16)] public Variant B2_Variant;
+            
+            // 24-31
+            [FieldOffset(24)] public Variant B3_Variant;
+        }
+
         private readonly RingBuffer<Variant> m_ValueStack;
         private readonly RingBuffer<LeafThreadHandle> m_Children;
         private readonly LeafChoice m_ChoiceBuffer;
@@ -139,6 +162,14 @@ namespace Leaf.Runtime
         {
             m_ChoiceBuffer.Offer();
             return m_ChoiceBuffer;
+        }
+
+        /// <summary>
+        /// Returns the identifier of the chosen option.
+        /// </summary>
+        public Variant GetChosenOption()
+        {
+            return m_ChoiceBuffer.ChosenTarget();
         }
 
         /// <summary>
@@ -410,6 +441,7 @@ namespace Leaf.Runtime
         
         private readonly RingBuffer<Frame> m_FrameStack;
         private ILeafPlugin<TNode> m_Plugin;
+        private readonly LeafRuntime.Executor<TNode> m_Executor;
 
         public LeafThreadState(ILeafPlugin<TNode> inPlugin)
             : base(inPlugin)
@@ -420,9 +452,17 @@ namespace Leaf.Runtime
             m_FrameStack = new RingBuffer<Frame>();
             m_Plugin = inPlugin;
             Resolver.Base = inPlugin.Resolver;
+
+            m_Executor = new LeafRuntime.Executor<TNode>(m_Plugin, this);
         }
 
         #region Internal State
+
+        internal LeafRuntime.Executor<TNode> GetExecutor()
+        {
+            m_Executor.Reset();
+            return m_Executor;
+        }
 
         #region Program Counters
 
@@ -542,6 +582,7 @@ namespace Leaf.Runtime
         {
             base.Reset();
 
+            m_Executor.Cleanup();
             ClearNodes();
         }
 

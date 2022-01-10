@@ -101,7 +101,7 @@ namespace Leaf.Defaults
 
             LeafThreadState<TNode> threadState = new LeafThreadState<TNode>(this);
             LeafThreadHandle handle = threadState.Setup(inName, inActor, inLocals);
-            threadState.AttachRoutine(Routine.Start(m_RoutineHost, LeafRuntime.Execute(this, threadState, inNode)));
+            threadState.AttachRoutine(Routine.Start(m_RoutineHost, LeafRuntime.Execute(threadState, inNode)));
 
             if (m_RoutineHost.isActiveAndEnabled)
                 threadState.ForceTick();

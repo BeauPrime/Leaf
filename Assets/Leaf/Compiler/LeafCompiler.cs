@@ -26,6 +26,12 @@ namespace Leaf.Compiler
     {
         #region Types
 
+        public class Report
+        {
+            public string[] Warnings;
+            public string[] Errors;
+        }
+
         private class CleanedParseRules : IDelimiterRules
         {
             public string TagStartDelimiter { get { return string.Empty; } }
@@ -328,6 +334,7 @@ namespace Leaf.Compiler
         private Func<string> m_RetrieveRoot;
         private readonly Dictionary<StringHash32, CommandHandler> m_Handlers = new Dictionary<StringHash32, CommandHandler>(23);
         private readonly StringSlice.ISplitter m_ArgsListSplitter = new StringUtils.ArgsList.Splitter(false);
+        private IMethodCache m_MethodCache;
 
         // temp resources
 
@@ -346,6 +353,9 @@ namespace Leaf.Compiler
         private readonly List<LeafExpression> m_ExpressionTable = new List<LeafExpression>(32);
 
         private readonly Dictionary<StringHash32, uint> m_StringTableReuseMap = new Dictionary<StringHash32, uint>();
+        private readonly HashSet<TableKeyPair> m_ReadVariables = new HashSet<TableKeyPair>();
+        private readonly HashSet<TableKeyPair> m_WrittenVariables = new HashSet<TableKeyPair>();
+        private readonly HashSet<StringHash32> m_UnrecognizedMethods = new HashSet<StringHash32>();
 
         // current node
 
@@ -378,11 +388,12 @@ namespace Leaf.Compiler
         /// <summary>
         /// Prepares to start compiling a module.
         /// </summary>
-        public void StartModule(LeafNodePackage inPackage, bool inbVerbose)
+        public void StartModule(LeafNodePackage inPackage, IMethodCache inMethodCache, bool inbVerbose)
         {
             Reset();
             m_Verbose = inbVerbose;
             m_RetrieveRoot = inPackage.RootPath;
+            m_MethodCache = inMethodCache;
 
             if (m_Verbose)
             {
@@ -471,6 +482,27 @@ namespace Leaf.Compiler
                 m_TempStringBuilder.Append("\nEmitted ").Append(m_PackageLines.Count).Append(" text lines");
                 m_TempStringBuilder.Append("\nEmitted ").Append(m_ExpressionTable.Count).Append(" expressions");
                 m_TempStringBuilder.Append("\nEmitted ").Append(m_StringTable.Count).Append(" strings");
+                
+                HashSet<TableKeyPair> unused = new HashSet<TableKeyPair>(m_ReadVariables);
+                unused.ExceptWith(m_WrittenVariables);
+                foreach(var key in unused)
+                {
+                    m_TempStringBuilder.Append("\nWARN: Variable ").Append(key.ToDebugString()).Append(" is read but not written to");
+                }
+
+                unused.Clear();
+                unused.UnionWith(m_WrittenVariables);
+                unused.ExceptWith(m_ReadVariables);
+                foreach(var key in unused)
+                {
+                    m_TempStringBuilder.Append("\nWARN: Variable ").Append(key.ToDebugString()).Append(" is written to but not read");
+                }
+
+                foreach(var methodId in m_UnrecognizedMethods)
+                {
+                    m_TempStringBuilder.Append("\nWARN: Method ").Append(methodId.ToDebugString()).Append(" is unrecognized");
+                }
+
                 m_TempStringBuilder.Append("\nDisassembly:\n");
                 LeafInstruction.Disassemble(ioPackage.m_Instructions, m_TempStringBuilder);
 
@@ -494,6 +526,10 @@ namespace Leaf.Compiler
             m_ExpressionTable.Clear();
             m_StringTable.Clear();
             m_StringTableReuseMap.Clear();
+            m_ReadVariables.Clear();
+            m_WrittenVariables.Clear();
+            m_UnrecognizedMethods.Clear();
+            m_MethodCache = null;
 
             m_CurrentNodeId = null;
             m_HasChoices = false;
@@ -924,6 +960,11 @@ namespace Leaf.Compiler
 
             if (targetDirect.IsEmpty)
             {
+                if (m_Verbose && m_MethodCache != null && !m_MethodCache.HasStatic(methodId))
+                {
+                    m_UnrecognizedMethods.Add(methodId);
+                }
+
                 WriteOp(LeafOpcode.Invoke);
             }
             else
@@ -935,6 +976,11 @@ namespace Leaf.Compiler
                 else
                 {
                     WritePushValue(targetDirect);
+                }
+
+                if (m_Verbose && m_MethodCache != null && !m_MethodCache.HasInstance(methodId))
+                {
+                    m_UnrecognizedMethods.Add(methodId);
                 }
 
                 WriteOp(LeafOpcode.InvokeWithTarget);
@@ -1062,7 +1108,7 @@ namespace Leaf.Compiler
             else if (VariantOperand.TryParse(inExpression, out operand))
             {
                 WriteVariantOperand(operand);
-                WriteOp(LeafOpcode.CastToBool);
+                // WriteOp(LeafOpcode.CastToBool); // don't need to do this
             }
             else if (VariantComparison.TryParse(inExpression, out comparison))
             {
@@ -1157,6 +1203,11 @@ namespace Leaf.Compiler
                         
                         WriteOp(LeafOpcode.StoreTableValue);
                         WriteTableKeyPair(modification.VariableKey);
+
+                        if (m_Verbose)
+                        {
+                            m_WrittenVariables.Add(modification.VariableKey);
+                        }
                         break;
                     }
 
@@ -1180,6 +1231,11 @@ namespace Leaf.Compiler
                             WriteOp(LeafOpcode.StoreTableValue);
                             WriteTableKeyPair(modification.VariableKey);
                         }
+
+                        if (m_Verbose)
+                        {
+                            m_WrittenVariables.Add(modification.VariableKey);
+                        }
                         break;
                     }
 
@@ -1194,6 +1250,11 @@ namespace Leaf.Compiler
                         
                         WriteOp(LeafOpcode.StoreTableValue);
                         WriteTableKeyPair(modification.VariableKey);
+
+                        if (m_Verbose)
+                        {
+                            m_WrittenVariables.Add(modification.VariableKey);
+                        }
                         break;
                     }
 
@@ -1208,6 +1269,11 @@ namespace Leaf.Compiler
                         
                         WriteOp(LeafOpcode.StoreTableValue);
                         WriteTableKeyPair(modification.VariableKey);
+
+                        if (m_Verbose)
+                        {
+                            m_WrittenVariables.Add(modification.VariableKey);
+                        }
                         break;
                     }
 
@@ -1222,6 +1288,11 @@ namespace Leaf.Compiler
                         
                         WriteOp(LeafOpcode.StoreTableValue);
                         WriteTableKeyPair(modification.VariableKey);
+
+                        if (m_Verbose)
+                        {
+                            m_WrittenVariables.Add(modification.VariableKey);
+                        }
                         break;
                     }
 
@@ -1244,6 +1315,11 @@ namespace Leaf.Compiler
 
                 case VariantOperand.Mode.TableKey:
                     {
+                        if (m_Verbose)
+                        {
+                            m_ReadVariables.Add(inOperand.TableKey);
+                        }
+
                         WriteOp(LeafOpcode.LoadTableValue);
                         WriteTableKeyPair(inOperand.TableKey);
                         break;
@@ -1253,6 +1329,11 @@ namespace Leaf.Compiler
                     {
                         MethodCall method = inOperand.MethodCall;
                         uint argsIndex = EmitStringTableEntry(method.Args);
+
+                        if (m_Verbose && m_MethodCache != null && !m_MethodCache.HasStatic(method.Id))
+                        {
+                            m_UnrecognizedMethods.Add(method.Id);
+                        }
 
                         WriteOp(LeafOpcode.InvokeWithReturn);
                         WriteStringHash32(method.Id);
@@ -1289,12 +1370,21 @@ namespace Leaf.Compiler
                     }
                 case VariantOperand.Mode.TableKey:
                     {
+                        if (m_Verbose)
+                        {
+                            m_ReadVariables.Add(inOperand.TableKey);
+                        }
                         return new LeafExpression.Operand(inOperand.TableKey);
                     }
                 case VariantOperand.Mode.Method:
                     {
                         MethodCall method = inOperand.MethodCall;
                         uint argsIndex = EmitStringTableEntry(method.Args);
+
+                        if (m_Verbose && m_MethodCache != null && !m_MethodCache.HasStatic(method.Id))
+                        {
+                            m_UnrecognizedMethods.Add(method.Id);
+                        }
 
                         return new LeafExpression.Operand(method.Id, argsIndex);
                     }
