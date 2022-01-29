@@ -107,6 +107,8 @@ namespace Leaf.Runtime
 
         IVariantResolver ILeafVariableAccess.Resolver { get { return Resolver; } }
 
+        internal ILeafPlugin Plugin { get { return m_BasePlugin; }}
+
         #region Internal State
 
         #region Value Stack

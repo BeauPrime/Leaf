@@ -41,6 +41,8 @@ namespace Leaf
         /// </summary>
         static public readonly StringHash32 LocalIdentifier = "local";
 
+        static internal readonly Type ActorType = typeof(ILeafActor);
+
         #region Identifiers
 
         /// <summary>
@@ -150,28 +152,117 @@ namespace Leaf
             
         }
 
-        static private string ReplaceOperandPlugin(StringSlice inSource, object inContext, DefaultParseContext inParseContext)
+        /// <summary>
+        /// Attempts to handles inline argument syntax.
+        /// </summary>
+        static public bool TryHandleInline(ILeafPlugin inPlugin, ref StringSlice inData, object inContext, out Variant outObject)
         {
-            StringSlice data = inSource.Substring(1);
-            StringSlice type = null; // TODO: Determine formatting specifiers
-            int formatSpecifierIdx = data.IndexOf('|');
-            if (formatSpecifierIdx >= 0)
+            if (inData.Length >= 2 && inData[0] == '$')
             {
-                type = data.Substring(formatSpecifierIdx + 1).Trim();
-                data = data.Substring(0, formatSpecifierIdx).TrimEnd();
+                StringSlice inner = inData.Substring(1);
+                if (inner[0] == '$')
+                {
+                    inData = inner;
+                    outObject = null;
+                    return false;
+                }
+
+                Variant returnVal;
+                if (!TryResolveVariant(inPlugin, inner, inContext, out returnVal))
+                {
+                    outObject = null;
+                    return false;
+                }
+
+                outObject = returnVal;
+                return true;
+            }
+            else
+            {
+                outObject = null;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Attempts to handles inline argument syntax.
+        /// </summary>
+        static public bool TryParseArgument(ILeafPlugin inPlugin, StringSlice inData, Type inType, object inContext, out object outObject)
+        {
+            if (inData.Length >= 2 && inData[0] == '$')
+            {
+                StringSlice inner = inData.Substring(1);
+                if (inner[0] == '$')
+                {
+                    return StringParser.TryConvertTo(inner, inType, out outObject);
+                }
+
+                Variant returnVal;
+                if (!TryResolveVariant(inPlugin, inner, inContext, out returnVal))
+                {
+                    outObject = null;
+                    return false;
+                }
+
+                if (ActorType.IsAssignableFrom(inType))
+                {
+                    inPlugin.TryLookupObject(returnVal.AsStringHash(), inContext as LeafThreadState, out outObject);
+                    return true;
+                }
+
+                return Variant.TryConvertTo(returnVal, inType, out outObject);
+            }
+            else
+            {
+                return StringParser.TryConvertTo(inData, inType, out outObject);
+            }
+        }
+
+        /// <summary>
+        /// Attempts to handle inline argument syntax.
+        /// </summary>
+        static public bool TryParseArgument<T>(ILeafPlugin inPlugin, StringSlice inData, object inContext, out T outObject)
+        {
+            object ret;
+            bool bSuccess = TryParseArgument(inPlugin, inData, typeof(T), inContext, out ret);
+            if (bSuccess)
+            {
+                outObject = (T) ret;
+                return true;
             }
 
+            outObject = default;
+            return false;
+        }
+
+        /// <summary>
+        /// Handles inline argument syntax.
+        /// </summary>
+        static public T ParseArgument<T>(ILeafPlugin inPlugin, StringSlice inData, object inContext, T inDefault = default(T))
+        {
+            T val;
+            if (!TryParseArgument<T>(inPlugin, inData, inContext, out val))
+                val = inDefault;
+            return val;
+        }
+
+        /// <summary>
+        /// Attempts to resolve an inline variant from the given string.
+        /// </summary>
+        static public bool TryResolveVariant(ILeafPlugin inPlugin, StringSlice inSource, object inContext, out Variant outValue)
+        {
             VariantOperand operand;
-            if (!VariantOperand.TryParse(data, out operand))
+            if (!VariantOperand.TryParse(inSource, out operand))
             {
-                Log.Error("[LeafUtils] Unable to parse operand '{0}' to operand", data);
-                return GetDisplayedErrorString(inSource);
+                Log.Error("[LeafUtils] Unable to parse operand '{0}' to operand", inSource);
+                outValue = null;
+                return false;
             }
 
             Variant value = Variant.Null;
             IVariantTable table = inContext as IVariantTable;
             LeafThreadState thread = inContext as LeafThreadState;
-            IVariantResolver resolver = (inContext as IVariantResolver) ?? thread?.Resolver ?? inParseContext.Plugin.Resolver;
+            IVariantResolver resolver = (inContext as IVariantResolver) ?? thread?.Resolver ?? inPlugin.Resolver;
 
             switch(operand.Type)
             {
@@ -200,16 +291,18 @@ namespace Leaf
                 case VariantOperand.Mode.Method:
                     {
                         object rawObj;
-                        if (!inParseContext.Plugin.MethodCache.TryStaticInvoke(operand.MethodCall, inContext, out rawObj))
+                        if (!inPlugin.MethodCache.TryStaticInvoke(operand.MethodCall, inContext, out rawObj))
                         {
                             Log.Error("[LeafUtils] Unable to execute {0} in inline method call '{1}'", operand.MethodCall, inSource);
-                            return GetDisplayedErrorString(inSource);
+                            outValue = null;
+                            return false;
                         }
 
                         if (!Variant.TryConvertFrom(rawObj, out value))
                         {
                             Log.Error("[LeafUtils] Unable to convert result of {0} ({1}) to Variant in inline method call '{2}'", operand.MethodCall, rawObj, inSource);
-                            return GetDisplayedErrorString(inSource);
+                            outValue = null;
+                            return false;
                         }
                         break;
                     }
@@ -217,7 +310,28 @@ namespace Leaf
                 default:
                     throw new IndexOutOfRangeException("Unknown VariantOperand type " + operand.Type);
             }
-            
+
+            outValue = value;
+            return true;
+        }
+
+        static private string ReplaceOperandPlugin(StringSlice inSource, object inContext, DefaultParseContext inParseContext)
+        {
+            StringSlice data = inSource.Substring(1);
+            StringSlice type = null; // TODO: Determine formatting specifiers
+            int formatSpecifierIdx = data.IndexOf('|');
+            if (formatSpecifierIdx >= 0)
+            {
+                type = data.Substring(formatSpecifierIdx + 1).Trim();
+                data = data.Substring(0, formatSpecifierIdx).TrimEnd();
+            }
+
+            Variant value = default;
+            if (!TryResolveVariant(inParseContext.Plugin, data, inContext, out value))
+            {
+                return GetDisplayedErrorString(inSource);
+            }
+
             if (type == "i" || type == "int")
             {
                 return value.AsInt().ToString();

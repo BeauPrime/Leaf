@@ -506,7 +506,14 @@ namespace Leaf.Compiler
                 m_TempStringBuilder.Append("\nDisassembly:\n");
                 LeafInstruction.Disassemble(ioPackage.m_Instructions, m_TempStringBuilder);
 
-                UnityEngine.Debug.LogFormat(m_TempStringBuilder.Flush());
+                if (m_UnrecognizedMethods.Count > 0)
+                {
+                    UnityEngine.Debug.LogWarningFormat(m_TempStringBuilder.Flush());
+                }
+                else
+                {
+                    UnityEngine.Debug.LogFormat(m_TempStringBuilder.Flush());
+                }
             }
 
             m_PackageLines.Clear();
