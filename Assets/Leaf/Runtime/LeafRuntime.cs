@@ -52,6 +52,7 @@ namespace Leaf.Runtime
 
             public readonly ILeafPlugin<TNode> Plugin;
             public readonly LeafThreadState<TNode> Thread;
+            public readonly LeafEvalContext EvalContext;
             public IEnumerator Wait;
             public int State;
             public LeafThreadState.RegisterState Registers;
@@ -60,6 +61,7 @@ namespace Leaf.Runtime
             {
                 Plugin = inPlugin;
                 Thread = inThreadState;
+                EvalContext = LeafEvalContext.FromPlugin(inPlugin, inThreadState);
             }
 
             public object Current { get { return Wait; } }
@@ -150,7 +152,7 @@ namespace Leaf.Runtime
                                 Registers.B0_Offset = LeafInstruction.ReadUInt32(block.InstructionStream, ref pc);
                                 Thread.WriteProgramCounter(pc);
 
-                                Registers.B0_Variant = EvaluateValueExpression(Plugin, ref block.ExpressionTable[Registers.B0_Offset], Thread, block.StringTable);
+                                Registers.B0_Variant = EvaluateValueExpression(EvalContext, ref block.ExpressionTable[Registers.B0_Offset], block.StringTable);
                                 Thread.PushValue(Registers.B0_Variant);
                                 break;
                             }
@@ -164,7 +166,7 @@ namespace Leaf.Runtime
                                 bool bResult = true;
                                 for(ushort i = 0; i < Registers.B0_Count; i++)
                                 {
-                                    if (!EvaluateLogicalExpression(Plugin, ref block.ExpressionTable[Registers.B0_Offset + i], Thread, block.StringTable))
+                                    if (!EvaluateLogicalExpression(EvalContext, ref block.ExpressionTable[Registers.B0_Offset + i], block.StringTable))
                                     {
                                         bResult = false;
                                         break;
@@ -184,7 +186,7 @@ namespace Leaf.Runtime
                                 bool bResult = false;
                                 for(ushort i = 0; i < Registers.B0_Count; i++)
                                 {
-                                    if (EvaluateLogicalExpression(Plugin, ref block.ExpressionTable[Registers.B0_Offset + i], Thread, block.StringTable))
+                                    if (EvaluateLogicalExpression(EvalContext, ref block.ExpressionTable[Registers.B0_Offset + i], block.StringTable))
                                     {
                                         bResult = true;
                                         break;
@@ -205,13 +207,13 @@ namespace Leaf.Runtime
                         
                         // INVOCATIONS
 
-                        case LeafOpcode.Invoke:
+                        case LeafOpcode.Invoke_Unoptimized:
                             {
                                 method.Id = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
                                 method.Args = LeafInstruction.ReadStringTableString(block.InstructionStream, ref pc, block.StringTable);
                                 Thread.WriteProgramCounter(pc);
 
-                                Wait = Invoke(Plugin, method, Thread, null);
+                                Wait = Invoke(EvalContext, method, null);
                                 if (Wait != null)
                                 {
                                     return true;
@@ -219,18 +221,18 @@ namespace Leaf.Runtime
                                 break;
                             }
 
-                        case LeafOpcode.InvokeWithReturn:
+                        case LeafOpcode.InvokeWithReturn_Unoptimized:
                             {
                                 method.Id = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
                                 method.Args = LeafInstruction.ReadStringTableString(block.InstructionStream, ref pc, block.StringTable);
                                 Thread.WriteProgramCounter(pc);
 
-                                Registers.B0_Variant = InvokeWithReturn(Plugin, method, Thread, null);
+                                Registers.B0_Variant = InvokeWithReturn(EvalContext, method, null);
                                 Thread.PushValue(Registers.B0_Variant);
                                 break;
                             }
 
-                        case LeafOpcode.InvokeWithTarget:
+                        case LeafOpcode.InvokeWithTarget_Unoptimized:
                             {
                                 method.Id = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
                                 method.Args = LeafInstruction.ReadStringTableString(block.InstructionStream, ref pc, block.StringTable);
@@ -245,7 +247,7 @@ namespace Leaf.Runtime
                                     break;
                                 }
 
-                                Wait = Invoke(Plugin, method, Thread, target);
+                                Wait = Invoke(EvalContext, method, target);
                                 if (Wait != null)
                                 {
                                     return true;
@@ -766,9 +768,9 @@ namespace Leaf.Runtime
         /// <summary>
         /// Invokes the given method call from the given thread.
         /// </summary>
-        static public IEnumerator Invoke(ILeafPlugin inPlugin, MethodCall inInvocation, LeafThreadState inThreadState, object inTarget)
+        static public IEnumerator Invoke(LeafEvalContext inContext, MethodCall inInvocation, object inTarget)
         {
-            IMethodCache cache = inPlugin.MethodCache;
+            IMethodCache cache = inContext.MethodCache;
             if (cache == null)
                 throw new InvalidOperationException("Cannot use DefaultLeafInvocation if ILeafPlugin.MethodCache is not specified for plugin");
             
@@ -776,11 +778,11 @@ namespace Leaf.Runtime
             object result;
             if (inTarget == null)
             {
-                bSuccess = cache.TryStaticInvoke(inInvocation.Id, inInvocation.Args, inThreadState, out result);
+                bSuccess = cache.TryStaticInvoke(inInvocation.Id, inInvocation.Args, inContext, out result);
             }
             else
             {
-                bSuccess = cache.TryInvoke(inTarget, inInvocation.Id, inInvocation.Args, inThreadState, out result);
+                bSuccess = cache.TryInvoke(inTarget, inInvocation.Id, inInvocation.Args, inContext, out result);
             }
 
             if (!bSuccess)
@@ -792,9 +794,9 @@ namespace Leaf.Runtime
         /// <summary>
         /// Invokes the given method call from the given thread.
         /// </summary>
-        static public Variant InvokeWithReturn(ILeafPlugin inPlugin, MethodCall inInvocation, LeafThreadState inThreadState, object inTarget)
+        static public Variant InvokeWithReturn(LeafEvalContext inContext, MethodCall inInvocation, object inTarget)
         {
-            IMethodCache cache = inPlugin.MethodCache;
+            IMethodCache cache = inContext.MethodCache;
             if (cache == null)
                 throw new InvalidOperationException("ILeafPlugin.MethodCache is not specified for plugin");
             
@@ -802,11 +804,11 @@ namespace Leaf.Runtime
             object result;
             if (inTarget == null)
             {
-                bSuccess = cache.TryStaticInvoke(inInvocation.Id, inInvocation.Args, inThreadState, out result);
+                bSuccess = cache.TryStaticInvoke(inInvocation.Id, inInvocation.Args, inContext, out result);
             }
             else
             {
-                bSuccess = cache.TryInvoke(inTarget, inInvocation.Id, inInvocation.Args, inThreadState, out result);
+                bSuccess = cache.TryInvoke(inTarget, inInvocation.Id, inInvocation.Args, inContext, out result);
             }
 
             if (!bSuccess)
@@ -832,38 +834,37 @@ namespace Leaf.Runtime
     
         #region Expressions
 
-        static internal Variant EvaluateValueExpression(ILeafPlugin inPlugin, ref LeafExpression inExpression, LeafThreadState ioThreadState, string[] inStringTable)
+        static internal Variant EvaluateValueExpression(LeafEvalContext inContext, ref LeafExpression inExpression, string[] inStringTable)
         {
             if ((inExpression.Flags & LeafExpression.TypeFlags.IsLogical) != 0)
             {
-                return EvaluateLogicalExpression(inPlugin, ref inExpression, ioThreadState, inStringTable);
+                return EvaluateLogicalExpression(inContext, ref inExpression, inStringTable);
             }
 
-            ref LeafExpression.Operand operand = ref inExpression.Left;
             Variant value;
-            TryEvaluateOperand(inPlugin, ref operand, ioThreadState, inStringTable, out value);
+            TryEvaluateOperand(inContext, inExpression.LeftType, ref inExpression.Left, inStringTable, out value);
             return value;
         }
 
-        static internal bool TryEvaluateOperand(ILeafPlugin inPlugin, ref LeafExpression.Operand inOperand, LeafThreadState ioThreadState, string[] inStringTable, out Variant outValue)
+        static internal bool TryEvaluateOperand(LeafEvalContext inContext, LeafExpression.OperandType inType, ref LeafExpression.OperandData inOperandData, string[] inStringTable, out Variant outValue)
         {
-            switch(inOperand.Type)
+            switch(inType)
             {
                 case LeafExpression.OperandType.Value:
                     {
-                        outValue = inOperand.Data.Value;
+                        outValue = inOperandData.Value;
                         return true;
                     }
                 case LeafExpression.OperandType.Read:
                     {
-                        return ioThreadState.TryGetVariable(inOperand.Data.TableKey, ioThreadState, out outValue);
+                        return inContext.Resolver.TryResolve(inContext, inOperandData.TableKey, out outValue);
                     }
                 case LeafExpression.OperandType.Method:
                     {
                         MethodCall call;
-                        call.Id = inOperand.Data.MethodId;
+                        call.Id = inOperandData.MethodId;
 
-                        uint stringIdx = inOperand.Data.MethodArgsIndex;
+                        uint stringIdx = inOperandData.MethodArgsIndex;
                         if (stringIdx == LeafInstruction.EmptyIndex)
                         {
                             call.Args = null;
@@ -873,21 +874,21 @@ namespace Leaf.Runtime
                             call.Args = inStringTable[stringIdx];
                         }
 
-                        outValue = InvokeWithReturn(inPlugin, call, ioThreadState, null);
+                        outValue = InvokeWithReturn(inContext, call, null);
                         return true;
                     }
                 default:
                     {
-                        throw new InvalidOperationException("Unknown expression operand type " + inOperand.Type);
+                        throw new InvalidOperationException("Unknown expression operand type " + inType);
                     }
             }
         }
 
-        static internal bool EvaluateLogicalExpression(ILeafPlugin inPlugin, ref LeafExpression inExpression, LeafThreadState ioThreadState, string[] inStringTable)
+        static internal bool EvaluateLogicalExpression(LeafEvalContext inContext, ref LeafExpression inExpression, string[] inStringTable)
         {
             bool leftExists;
             Variant left, right;
-            leftExists = TryEvaluateOperand(inPlugin, ref inExpression.Left, ioThreadState, inStringTable, out left);
+            leftExists = TryEvaluateOperand(inContext, inExpression.LeftType, ref inExpression.Left, inStringTable, out left);
 
             switch(inExpression.Operator)
             {
@@ -901,7 +902,7 @@ namespace Leaf.Runtime
                     return !left.AsBool();
             }
 
-            TryEvaluateOperand(inPlugin, ref inExpression.Right, ioThreadState, inStringTable, out right);
+            TryEvaluateOperand(inContext, inExpression.RightType, ref inExpression.Right, inStringTable, out right);
 
             switch(inExpression.Operator)
             {

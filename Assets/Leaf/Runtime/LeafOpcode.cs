@@ -51,21 +51,39 @@ namespace Leaf.Runtime
 
         // INVOCATIONS
 
-        // Invokes a method call
+        // Invokes a method call dynamically parsing args from a string
         // Args: StringHash32 callId, uint stringIndex
         // Size: 9
-        Invoke,
+        Invoke_Unoptimized,
 
-        // Invokes a method call for a specific target
+        // Invokes a method call for a specific target dynamically parsing args from a string
         // Args: StringHash32 callId, uint argsIndex
         // Stack: pop StringHash32 targetId
         // Size: 9
-        InvokeWithTarget,
+        InvokeWithTarget_Unoptimized,
 
-        // Invokes a method call and pushes the return value to the stack
+        // Invokes a method call dynamically parsing args from a string and pushes the return value to the stack 
         // Args: StringHash32 callId, uint argsIndex
         // Stack: push Variant returnValue
         // Size: 9
+        InvokeWithReturn_Unoptimized,
+
+        // Invokes a method call popping args from the stack
+        // Args: StringHash32 callId, ushort argsCount
+        // Stack: pop [argsCount]
+        // Size: 7
+        Invoke,
+
+        // Invokes a method call for a specific target popping args from the stack
+        // Args: StringHash32 callId, ushort argsCount
+        // Stack: pop [argsCount], pop StringHash32 targetId
+        // Size: 7
+        InvokeWithTarget,
+
+        // Invokes a method call popping args from the stack and pushing the return value to the stack
+        // Args: StringHash32 callId, ushort argsCount
+        // Stack: pop [argsCount], push Variant returnValue
+        // Size: 7
         InvokeWithReturn,
 
         // STACK

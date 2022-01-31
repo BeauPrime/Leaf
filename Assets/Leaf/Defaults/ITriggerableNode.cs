@@ -12,15 +12,18 @@ using BeauUtil.Variants;
 
 namespace Leaf.Defaults
 {
-    public interface ITriggerableNode
+    public struct NodeTriggerInfo
     {
-        StringHash32 TriggerId { get; }
-        VariantComparison[] TriggerConditions { get; }
-        TriggerMode TriggerMode { get; }
-        int TriggerScore { get; }
+        public StringHash32 TriggerId;
+        public int Score;
+        public StringHash32 TargetId;
+        public int Priority;
+        public VariantComparison[] Conditions;
+
+        public TriggerMode Mode;
     }
 
-    public enum TriggerMode
+    public enum TriggerMode : byte
     {
         Prioritized,
         Function

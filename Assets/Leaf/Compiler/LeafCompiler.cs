@@ -335,6 +335,7 @@ namespace Leaf.Compiler
         private readonly Dictionary<StringHash32, CommandHandler> m_Handlers = new Dictionary<StringHash32, CommandHandler>(23);
         private readonly StringSlice.ISplitter m_ArgsListSplitter = new StringUtils.ArgsList.Splitter(false);
         private IMethodCache m_MethodCache;
+        private IBlockParserUtil m_BlockParserState;
 
         // temp resources
 
@@ -346,6 +347,7 @@ namespace Leaf.Compiler
 
         // package emission
 
+        private LeafNodePackage m_CurrentPackage;
         private readonly Dictionary<StringHash32, string> m_PackageLines = new Dictionary<StringHash32, string>(32);
 
         private readonly RingBuffer<byte> m_InstructionStream = new RingBuffer<byte>(1024, RingBufferMode.Expand);
@@ -388,12 +390,14 @@ namespace Leaf.Compiler
         /// <summary>
         /// Prepares to start compiling a module.
         /// </summary>
-        public void StartModule(LeafNodePackage inPackage, IMethodCache inMethodCache, bool inbVerbose)
+        public void StartModule(LeafNodePackage inPackage, IMethodCache inMethodCache, IBlockParserUtil inStateUtil, bool inbVerbose)
         {
             Reset();
             m_Verbose = inbVerbose;
             m_RetrieveRoot = inPackage.RootPath;
             m_MethodCache = inMethodCache;
+            m_BlockParserState = inStateUtil;
+            m_CurrentPackage = inPackage;
 
             if (m_Verbose)
             {
@@ -521,6 +525,10 @@ namespace Leaf.Compiler
             m_InstructionStream.Clear();
             m_StringTable.Clear();
             m_StringTableReuseMap.Clear();
+            m_BlockParserState = null;
+            m_RetrieveRoot = null;
+            m_MethodCache = null;
+            m_CurrentPackage = null;
         }
 
         /// <summary>
@@ -537,6 +545,7 @@ namespace Leaf.Compiler
             m_WrittenVariables.Clear();
             m_UnrecognizedMethods.Clear();
             m_MethodCache = null;
+            m_CurrentPackage = null;
 
             m_CurrentNodeId = null;
             m_HasChoices = false;
@@ -545,6 +554,9 @@ namespace Leaf.Compiler
             m_CurrentNodeInstructionOffset = 0;
             m_CurrentNodeInstructionLength = 0;
 
+            m_BlockParserState = null;
+            m_RetrieveRoot = null;
+            m_MethodCache = null;
             m_LinkerCount = 0;
         }
 
@@ -972,7 +984,7 @@ namespace Leaf.Compiler
                     m_UnrecognizedMethods.Add(methodId);
                 }
 
-                WriteOp(LeafOpcode.Invoke);
+                WriteOp(LeafOpcode.Invoke_Unoptimized);
             }
             else
             {
@@ -990,7 +1002,7 @@ namespace Leaf.Compiler
                     m_UnrecognizedMethods.Add(methodId);
                 }
 
-                WriteOp(LeafOpcode.InvokeWithTarget);
+                WriteOp(LeafOpcode.InvokeWithTarget_Unoptimized);
             }
 
             WriteStringHash32(methodId);
@@ -1097,20 +1109,10 @@ namespace Leaf.Compiler
             VariantComparison comparison;
             if (StringUtils.ArgsList.IsList(inExpression))
             {
-                uint expressionOffset = (uint) m_ExpressionTable.Count;
-                ushort expressionCount = 0;
-
-                LeafExpression expression;
-                foreach(var group in inExpression.EnumeratedSplit(m_ArgsListSplitter, StringSplitOptions.RemoveEmptyEntries))
-                {
-                    expression = CompileLogicalExpressionChunk(inPosition, group);
-                    m_ExpressionTable.Add(expression);
-                    expressionCount++;
-                }
-
+                LeafExpressionGroup group = CompileExpressionGroup(inPosition, inExpression);
                 WriteOp(LeafOpcode.EvaluateExpressionsAnd);
-                WriteUInt32(expressionOffset);
-                WriteUInt16(expressionCount);
+                WriteUInt32(group.m_Offset);
+                WriteUInt16(group.m_Count);
             }
             else if (VariantOperand.TryParse(inExpression, out operand))
             {
@@ -1342,7 +1344,7 @@ namespace Leaf.Compiler
                             m_UnrecognizedMethods.Add(method.Id);
                         }
 
-                        WriteOp(LeafOpcode.InvokeWithReturn);
+                        WriteOp(LeafOpcode.InvokeWithReturn_Unoptimized);
                         WriteStringHash32(method.Id);
                         WriteUInt32(argsIndex);
                         break;
@@ -1361,19 +1363,21 @@ namespace Leaf.Compiler
 
             expression.Flags = LeafExpression.TypeFlags.IsLogical;
             expression.Operator = comparison.Operator;
-            expression.Left = CompileLogicalExpressionOperand(comparison.Left);
-            expression.Right = CompileLogicalExpressionOperand(comparison.Right);
+            CompileLogicalExpressionOperand(comparison.Left, out expression.LeftType, out expression.Left);
+            CompileLogicalExpressionOperand(comparison.Right, out expression.RightType, out expression.Right);
             
             return expression;
         }
 
-        private LeafExpression.Operand CompileLogicalExpressionOperand(VariantOperand inOperand)
+        private void CompileLogicalExpressionOperand(VariantOperand inOperand, out LeafExpression.OperandType outType, out LeafExpression.OperandData outData)
         {
             switch(inOperand.Type)
             {
                 case VariantOperand.Mode.Variant:
                     {
-                        return new LeafExpression.Operand(inOperand.Value);
+                        outType = LeafExpression.OperandType.Value;
+                        outData = new LeafExpression.OperandData(inOperand.Value);
+                        break;
                     }
                 case VariantOperand.Mode.TableKey:
                     {
@@ -1381,7 +1385,9 @@ namespace Leaf.Compiler
                         {
                             m_ReadVariables.Add(inOperand.TableKey);
                         }
-                        return new LeafExpression.Operand(inOperand.TableKey);
+                        outType = LeafExpression.OperandType.Read;
+                        outData = new LeafExpression.OperandData(inOperand.TableKey);
+                        break;
                     }
                 case VariantOperand.Mode.Method:
                     {
@@ -1393,13 +1399,53 @@ namespace Leaf.Compiler
                             m_UnrecognizedMethods.Add(method.Id);
                         }
 
-                        return new LeafExpression.Operand(method.Id, argsIndex);
+                        outType = LeafExpression.OperandType.Method;
+                        outData = new LeafExpression.OperandData(method.Id, argsIndex);
+                        break;
                     }
                 default:
                     {
                         throw new InvalidOperationException("Unknown operand type " + inOperand.Type);
                     }
             }
+        }
+
+        public LeafExpressionGroup CompileExpressionGroup(StringSlice inExpression)
+        {
+            return CompileExpressionGroup(m_BlockParserState.Position, inExpression);
+        }
+
+        public LeafExpressionGroup CompileExpressionGroup(BlockFilePosition inPosition, StringSlice inExpression)
+        {
+            uint expressionOffset = (uint) m_ExpressionTable.Count;
+            ushort expressionCount = 0;
+
+            LeafExpression expression;
+            foreach(var group in inExpression.EnumeratedSplit(m_ArgsListSplitter, StringSplitOptions.RemoveEmptyEntries))
+            {
+                expression = CompileLogicalExpressionChunk(inPosition, group);
+                m_ExpressionTable.Add(expression);
+                expressionCount++;
+            }
+
+            LeafExpressionGroup expGroup;
+            expGroup.m_Offset = expressionOffset;
+            expGroup.m_Count = expressionCount;
+            expGroup.m_Package = m_CurrentPackage;
+            if (expressionCount >= 1)
+            {
+                expGroup.m_Type = LeafExpression.TypeFlags.IsLogical | LeafExpression.TypeFlags.IsAnd;
+            }
+            else if (expressionCount == 1)
+            {
+                expGroup.m_Type = m_ExpressionTable[(int) expressionOffset].Flags;
+            }
+            else
+            {
+                expGroup.m_Type = default;
+            }
+
+            return expGroup;
         }
 
         #endregion // Expressions

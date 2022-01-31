@@ -274,7 +274,7 @@ namespace Leaf.Runtime
                         {
                             uint expressionIdx = ReadUInt32(stream, ref pc);
                             ioBuilder.Append(" (");
-                            DisassembleExpression(inBlock, expressionIdx, ioBuilder);
+                            DisassembleExpression(inBlock, inBlock.ExpressionTable[expressionIdx], ioBuilder);
                             ioBuilder.Append(" )");
                             break;
                         }
@@ -289,7 +289,7 @@ namespace Leaf.Runtime
                             {
                                 if (i > 0)
                                     ioBuilder.Append(" && ");
-                                DisassembleExpression(inBlock, expressionOffset + i, ioBuilder);
+                                DisassembleExpression(inBlock, inBlock.ExpressionTable[expressionOffset + i], ioBuilder);
                             }
                             ioBuilder.Append(")");
                             break;
@@ -305,7 +305,7 @@ namespace Leaf.Runtime
                             {
                                 if (i > 0)
                                     ioBuilder.Append(" || ");
-                                DisassembleExpression(inBlock, expressionOffset + i, ioBuilder);
+                                DisassembleExpression(inBlock, inBlock.ExpressionTable[expressionOffset + i], ioBuilder);
                             }
                             ioBuilder.Append(")");
                             break;
@@ -317,9 +317,9 @@ namespace Leaf.Runtime
                             break;
                         }
 
-                    case LeafOpcode.Invoke:
-                    case LeafOpcode.InvokeWithTarget:
-                    case LeafOpcode.InvokeWithReturn:
+                    case LeafOpcode.Invoke_Unoptimized:
+                    case LeafOpcode.InvokeWithTarget_Unoptimized:
+                    case LeafOpcode.InvokeWithReturn_Unoptimized:
                         {
                             MethodCall invocation;
                             invocation.Id = ReadStringHash32(stream, ref pc);
@@ -382,110 +382,120 @@ namespace Leaf.Runtime
             }
         }
 
-        static private void DisassembleExpression(LeafInstructionBlock inBlock, uint inExpressionIndex, StringBuilder ioBuilder)
+        static internal void DisassembleExpressionGroup(LeafInstructionBlock inBlock, LeafExpressionGroup inExpression, StringBuilder ioBuilder)
         {
-            LeafExpression expression = inBlock.ExpressionTable[inExpressionIndex];
+            ioBuilder.Append("(");
+            for(ushort i = 0; i < inExpression.m_Count; i++)
+            {
+                if (i > 0)
+                    ioBuilder.Append(" || ");
+                DisassembleExpression(inBlock, inBlock.ExpressionTable[inExpression.m_Offset + i], ioBuilder);
+            }
+            ioBuilder.Append(")");
+        }
 
-            switch(expression.Operator)
+        static internal void DisassembleExpression(LeafInstructionBlock inBlock, LeafExpression inExpression, StringBuilder ioBuilder)
+        {
+            switch(inExpression.Operator)
             {
                 case VariantCompareOperator.True:
                     {
-                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        DisassembleExpressionOperand(inBlock, inExpression.LeftType, inExpression.Left, ioBuilder);
                         break;
                     }
 
                 case VariantCompareOperator.False:
                     {
                         ioBuilder.Append("!");
-                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        DisassembleExpressionOperand(inBlock, inExpression.LeftType, inExpression.Left, ioBuilder);
                         break;
                     }
 
                 case VariantCompareOperator.LessThan:
                     {
-                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        DisassembleExpressionOperand(inBlock, inExpression.LeftType, inExpression.Left, ioBuilder);
                         ioBuilder.Append(" < ");
-                        DisassembleExpressionOperand(inBlock, expression.Right, ioBuilder);
+                        DisassembleExpressionOperand(inBlock, inExpression.RightType, inExpression.Right, ioBuilder);
                         break;
                     }
 
                 case VariantCompareOperator.LessThanOrEqualTo:
                     {
-                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        DisassembleExpressionOperand(inBlock, inExpression.LeftType, inExpression.Left, ioBuilder);
                         ioBuilder.Append(" <= ");
-                        DisassembleExpressionOperand(inBlock, expression.Right, ioBuilder);
+                        DisassembleExpressionOperand(inBlock, inExpression.RightType, inExpression.Right, ioBuilder);
                         break;
                     }
 
                 case VariantCompareOperator.EqualTo:
                     {
-                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        DisassembleExpressionOperand(inBlock, inExpression.LeftType, inExpression.Left, ioBuilder);
                         ioBuilder.Append(" == ");
-                        DisassembleExpressionOperand(inBlock, expression.Right, ioBuilder);
+                        DisassembleExpressionOperand(inBlock, inExpression.RightType, inExpression.Right, ioBuilder);
                         break;
                     }
 
                 case VariantCompareOperator.NotEqualTo:
                     {
-                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        DisassembleExpressionOperand(inBlock, inExpression.LeftType, inExpression.Left, ioBuilder);
                         ioBuilder.Append(" != ");
-                        DisassembleExpressionOperand(inBlock, expression.Right, ioBuilder);
+                        DisassembleExpressionOperand(inBlock, inExpression.RightType, inExpression.Right, ioBuilder);
                         break;
                     }
 
                 case VariantCompareOperator.GreaterThanOrEqualTo:
                     {
-                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        DisassembleExpressionOperand(inBlock, inExpression.LeftType, inExpression.Left, ioBuilder);
                         ioBuilder.Append(" >= ");
-                        DisassembleExpressionOperand(inBlock, expression.Right, ioBuilder);
+                        DisassembleExpressionOperand(inBlock, inExpression.RightType, inExpression.Right, ioBuilder);
                         break;
                     }
 
                 case VariantCompareOperator.GreaterThan:
                     {
-                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        DisassembleExpressionOperand(inBlock, inExpression.LeftType, inExpression.Left, ioBuilder);
                         ioBuilder.Append(" > ");
-                        DisassembleExpressionOperand(inBlock, expression.Right, ioBuilder);
+                        DisassembleExpressionOperand(inBlock, inExpression.RightType, inExpression.Right, ioBuilder);
                         break;
                     }
 
                 case VariantCompareOperator.Exists:
                     {
-                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        DisassembleExpressionOperand(inBlock, inExpression.LeftType, inExpression.Left, ioBuilder);
                         ioBuilder.Append(" exists");
                         break;
                     }
 
                 case VariantCompareOperator.DoesNotExist:
                     {
-                        DisassembleExpressionOperand(inBlock, expression.Left, ioBuilder);
+                        DisassembleExpressionOperand(inBlock, inExpression.LeftType, inExpression.Left, ioBuilder);
                         ioBuilder.Append(" does not exist");
                         break;
                     }
             }
         }
 
-        static private void DisassembleExpressionOperand(LeafInstructionBlock inBlock, LeafExpression.Operand inOperand, StringBuilder ioBuilder)
+        static private void DisassembleExpressionOperand(LeafInstructionBlock inBlock, LeafExpression.OperandType inType, LeafExpression.OperandData inOperandData, StringBuilder ioBuilder)
         {
-            switch(inOperand.Type)
+            switch(inType)
             {
                 case LeafExpression.OperandType.Value:
                     {
-                        ioBuilder.Append(inOperand.Data.Value.ToDebugString());
+                        ioBuilder.Append(inOperandData.Value.ToDebugString());
                         break;
                     }
 
                 case LeafExpression.OperandType.Read:
                     {
-                        ioBuilder.Append(inOperand.Data.TableKey.ToDebugString());
+                        ioBuilder.Append(inOperandData.TableKey.ToDebugString());
                         break;
                     }
 
                 case LeafExpression.OperandType.Method:
                     {
                         MethodCall method;
-                        method.Id = inOperand.Data.MethodId;
-                        method.Args = inOperand.Data.MethodArgsIndex == EmptyIndex ? null : inBlock.StringTable[inOperand.Data.MethodArgsIndex];
+                        method.Id = inOperandData.MethodId;
+                        method.Args = inOperandData.MethodArgsIndex == EmptyIndex ? null : inBlock.StringTable[inOperandData.MethodArgsIndex];
 
                         ioBuilder.Append(method.ToDebugString());
                         break;

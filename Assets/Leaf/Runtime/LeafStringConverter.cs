@@ -23,8 +23,8 @@ namespace Leaf.Runtime
 
         public bool TryConvertTo(StringSlice inData, Type inType, object inContext, out object outObject)
         {
-            ILeafPlugin plugin = (inContext as ILeafPlugin) ?? ((inContext as LeafThreadState)?.Plugin);
-            return LeafUtils.TryParseArgument(plugin, inData, inType, inContext, out outObject);
+            LeafEvalContext context = LeafEvalContext.FromObject(inContext);
+            return LeafUtils.TryParseArgument(context, inData, inType, out outObject);
         }
     }
 }

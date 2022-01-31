@@ -48,7 +48,7 @@ namespace Leaf.Compiler
         public override void OnStart(IBlockParserUtil inUtil, TPackage inPackage)
         {
             inPackage.m_Compiler = AllocCompiler();
-            inPackage.m_Compiler.StartModule(inPackage, MethodCache, IsVerbose);
+            inPackage.m_Compiler.StartModule(inPackage, MethodCache, inUtil, IsVerbose);
             inPackage.Clear();
         }
 

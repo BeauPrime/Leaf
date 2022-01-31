@@ -14,13 +14,13 @@ using BeauUtil.Tags;
 
 namespace Leaf.Defaults
 {
-    public class DefaultLeafTriggerSet<TNode> where TNode : LeafNode, ITriggerableNode
-    {
-        public class Subset
-        {
-            private readonly List<TNode> m_Prioritized = new List<TNode>(8);
-            private readonly List<TNode> m_Functions = new List<TNode>(4);
-            private bool m_Sorted = false;
-        }
-    }
+    // public class DefaultLeafTriggerSet<TNode> where TNode : LeafNode, ITriggerableNode
+    // {
+    //     public class Subset
+    //     {
+    //         private readonly List<TNode> m_Prioritized = new List<TNode>(8);
+    //         private readonly List<TNode> m_Functions = new List<TNode>(4);
+    //         private bool m_Sorted = false;
+    //     }
+    // }
 }

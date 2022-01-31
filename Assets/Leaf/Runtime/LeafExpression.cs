@@ -7,7 +7,12 @@
  * Purpose: Single leaf expression.
  */
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#define DEVELOPMENT
+#endif // UNITY_EDITOR || DEVELOPMENT_BUILD
+
 using System.Runtime.InteropServices;
+using System.Text;
 using BeauUtil;
 using BeauUtil.Variants;
 
@@ -25,7 +30,9 @@ namespace Leaf.Runtime
 
         public enum TypeFlags : byte
         {
-            IsLogical = 0x01
+            IsLogical = 0x01,
+            IsAnd = 0x02,
+            IsOr = 0x04
         }
 
         public enum OperandType : byte
@@ -35,65 +42,6 @@ namespace Leaf.Runtime
             Method
         }
 
-        public struct Operand
-        #if USING_BEAUDATA
-            : BeauData.ISerializedObject
-        #endif // USING_BEAUDATA
-        {
-            public OperandType Type;
-            public OperandData Data;
-
-            private Operand(OperandType inType)
-            {
-                Type = inType;
-                Data = default(OperandData);
-            }
-
-            public Operand(Variant inValue)
-                : this(OperandType.Value)
-            {
-                Data.Value = inValue;
-            }
-
-            public Operand(TableKeyPair inTableKey)
-                : this(OperandType.Read)
-            {
-                Data.TableKey = inTableKey;
-            }
-
-            public Operand(StringHash32 inMethodId, uint inArgsIndex)
-                : this(OperandType.Method)
-            {
-                Data.MethodId = inMethodId;
-                Data.MethodArgsIndex = inArgsIndex;
-            }
-
-            #if USING_BEAUDATA
-
-            public void Serialize(BeauData.Serializer ioSerializer)
-            {
-                ioSerializer.Enum("type", ref Type);
-                switch(Type)
-                {
-                    case OperandType.Value:
-                        ioSerializer.Object("value", ref Data.Value);
-                        break;
-
-                    case OperandType.Read:
-                        ioSerializer.UInt32Proxy("tableId", ref Data.TableKey.TableId);
-                        ioSerializer.UInt32Proxy("varId", ref Data.TableKey.VariableId);
-                        break;
-
-                    case OperandType.Method:
-                        ioSerializer.UInt32Proxy("methodId", ref Data.MethodId);
-                        ioSerializer.Serialize("methodArgsIndex", ref Data.MethodArgsIndex);
-                        break;
-                }
-            }
-
-            #endif // USING_BEAUDATA
-        }
-
         [StructLayout(LayoutKind.Explicit)]
         public struct OperandData
         {
@@ -101,30 +49,103 @@ namespace Leaf.Runtime
             [FieldOffset(0)] public TableKeyPair TableKey;
             [FieldOffset(0)] public StringHash32 MethodId;
             [FieldOffset(4)] public uint MethodArgsIndex;
+
+            public OperandData(Variant inValue)
+                : this()
+            {
+                Value = inValue;
+            }
+
+            public OperandData(TableKeyPair inTableKey)
+                : this()
+            {
+                TableKey = inTableKey;
+            }
+
+            public OperandData(StringHash32 inMethodId, uint inArgsIndex)
+                : this()
+            {
+                MethodId = inMethodId;
+                MethodArgsIndex = inArgsIndex;
+            }
+
+            #if USING_BEAUDATA
+
+            public void Serialize(BeauData.Serializer ioSerializer, OperandType inType)
+            {
+                switch(inType)
+                {
+                    case OperandType.Value:
+                        ioSerializer.Object("value", ref Value);
+                        break;
+
+                    case OperandType.Read:
+                        ioSerializer.UInt32Proxy("tableId", ref TableKey.TableId);
+                        ioSerializer.UInt32Proxy("varId", ref TableKey.VariableId);
+                        break;
+
+                    case OperandType.Method:
+                        ioSerializer.UInt32Proxy("methodId", ref MethodId);
+                        ioSerializer.Serialize("methodArgsIndex", ref MethodArgsIndex);
+                        break;
+                }
+            }
+
+            #endif // USING_BEAUDATA
         }
 
         #endregion // Types
 
         public TypeFlags Flags;
         public VariantCompareOperator Operator;
-        public Operand Left;
-        public Operand Right;
+        public OperandType LeftType;
+        public OperandType RightType;
+        public OperandData Left;
+        public OperandData Right;
 
         #if USING_BEAUDATA
 
         public void Serialize(BeauData.Serializer ioSerializer)
         {
             ioSerializer.Enum("flags", ref Flags);
-            ioSerializer.Object("left", ref Left);
+            ioSerializer.Enum("leftType", ref LeftType);
+            ioSerializer.BeginGroup("left");
+            {
+                Left.Serialize(ioSerializer, LeftType);
+            }
+            ioSerializer.EndGroup();
             
             if ((Flags & TypeFlags.IsLogical) != 0)
             {
                 ioSerializer.Enum("operator", ref Operator);
                 if (Operator <= VariantCompareOperator.GreaterThan)
-                    ioSerializer.Object("right", ref Right);
+                {
+                    ioSerializer.Enum("rightType", ref RightType);
+                    ioSerializer.BeginGroup("right");
+                    {
+                        Right.Serialize(ioSerializer, RightType);
+                    }
+                    ioSerializer.EndGroup();
+                }
             }
         }
 
         #endif // USING_BEAUDATA
+
+        public string ToDebugString(LeafNode inNode)
+        {
+            return ToDebugString(inNode.Package());
+        }
+
+        public string ToDebugString(LeafNodePackage inPackage)
+        {
+            #if DEVELOPMENT
+            StringBuilder sb = new StringBuilder();
+            LeafInstruction.DisassembleExpression(inPackage.m_Instructions, this, sb);
+            return sb.Flush();
+            #else
+            return "LeafExpression cannot be decompiled in non-development builds";
+            #endif // DEVELOPMENT
+        }
     }
 }

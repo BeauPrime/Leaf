@@ -155,7 +155,7 @@ namespace Leaf
         /// <summary>
         /// Attempts to handles inline argument syntax.
         /// </summary>
-        static public bool TryHandleInline(ILeafPlugin inPlugin, ref StringSlice inData, object inContext, out Variant outObject)
+        static public bool TryHandleInline(LeafEvalContext inContext, ref StringSlice inData, out Variant outObject)
         {
             if (inData.Length >= 2 && inData[0] == '$')
             {
@@ -168,7 +168,7 @@ namespace Leaf
                 }
 
                 Variant returnVal;
-                if (!TryResolveVariant(inPlugin, inner, inContext, out returnVal))
+                if (!TryResolveVariant(inContext, inner, out returnVal))
                 {
                     outObject = null;
                     return false;
@@ -187,7 +187,7 @@ namespace Leaf
         /// <summary>
         /// Attempts to handles inline argument syntax.
         /// </summary>
-        static public bool TryParseArgument(ILeafPlugin inPlugin, StringSlice inData, Type inType, object inContext, out object outObject)
+        static public bool TryParseArgument(LeafEvalContext inContext, StringSlice inData, Type inType, out object outObject)
         {
             if (inData.Length >= 2 && inData[0] == '$')
             {
@@ -198,7 +198,7 @@ namespace Leaf
                 }
 
                 Variant returnVal;
-                if (!TryResolveVariant(inPlugin, inner, inContext, out returnVal))
+                if (!TryResolveVariant(inContext, inner, out returnVal))
                 {
                     outObject = null;
                     return false;
@@ -206,7 +206,7 @@ namespace Leaf
 
                 if (ActorType.IsAssignableFrom(inType))
                 {
-                    inPlugin.TryLookupObject(returnVal.AsStringHash(), inContext as LeafThreadState, out outObject);
+                    inContext.Plugin.TryLookupObject(returnVal.AsStringHash(), inContext.Thread, out outObject);
                     return true;
                 }
 
@@ -221,10 +221,10 @@ namespace Leaf
         /// <summary>
         /// Attempts to handle inline argument syntax.
         /// </summary>
-        static public bool TryParseArgument<T>(ILeafPlugin inPlugin, StringSlice inData, object inContext, out T outObject)
+        static public bool TryParseArgument<T>(LeafEvalContext inContext, StringSlice inData, out T outObject)
         {
             object ret;
-            bool bSuccess = TryParseArgument(inPlugin, inData, typeof(T), inContext, out ret);
+            bool bSuccess = TryParseArgument(inContext, inData, typeof(T), out ret);
             if (bSuccess)
             {
                 outObject = (T) ret;
@@ -238,10 +238,10 @@ namespace Leaf
         /// <summary>
         /// Handles inline argument syntax.
         /// </summary>
-        static public T ParseArgument<T>(ILeafPlugin inPlugin, StringSlice inData, object inContext, T inDefault = default(T))
+        static public T ParseArgument<T>(LeafEvalContext inContext, StringSlice inData, T inDefault = default(T))
         {
             T val;
-            if (!TryParseArgument<T>(inPlugin, inData, inContext, out val))
+            if (!TryParseArgument<T>(inContext, inData, out val))
                 val = inDefault;
             return val;
         }
@@ -249,7 +249,7 @@ namespace Leaf
         /// <summary>
         /// Attempts to resolve an inline variant from the given string.
         /// </summary>
-        static public bool TryResolveVariant(ILeafPlugin inPlugin, StringSlice inSource, object inContext, out Variant outValue)
+        static public bool TryResolveVariant(LeafEvalContext inContext, StringSlice inSource, out Variant outValue)
         {
             VariantOperand operand;
             if (!VariantOperand.TryParse(inSource, out operand))
@@ -260,9 +260,6 @@ namespace Leaf
             }
 
             Variant value = Variant.Null;
-            IVariantTable table = inContext as IVariantTable;
-            LeafThreadState thread = inContext as LeafThreadState;
-            IVariantResolver resolver = (inContext as IVariantResolver) ?? thread?.Resolver ?? inPlugin.Resolver;
 
             switch(operand.Type)
             {
@@ -276,6 +273,7 @@ namespace Leaf
                     {
                         TableKeyPair keyPair = operand.TableKey;
                         bool bFound = false;
+                        IVariantTable table = inContext.Table;
                         if (table != null && (keyPair.TableId.IsEmpty || keyPair.TableId == table.Name))
                         {
                             bFound = table.TryLookup(keyPair.VariableId, out value);
@@ -283,7 +281,7 @@ namespace Leaf
 
                         if (!bFound)
                         {
-                            bFound = resolver.TryGetVariant(inContext, keyPair, out value);
+                            bFound = inContext.Resolver.TryGetVariant(inContext, keyPair, out value);
                         }
                         break;
                     }
@@ -291,7 +289,7 @@ namespace Leaf
                 case VariantOperand.Mode.Method:
                     {
                         object rawObj;
-                        if (!inPlugin.MethodCache.TryStaticInvoke(operand.MethodCall, inContext, out rawObj))
+                        if (!inContext.MethodCache.TryStaticInvoke(operand.MethodCall, inContext, out rawObj))
                         {
                             Log.Error("[LeafUtils] Unable to execute {0} in inline method call '{1}'", operand.MethodCall, inSource);
                             outValue = null;
@@ -326,8 +324,10 @@ namespace Leaf
                 data = data.Substring(0, formatSpecifierIdx).TrimEnd();
             }
 
+            LeafEvalContext context = LeafEvalContext.FromObject(inContext, inParseContext.Plugin);
+
             Variant value = default;
-            if (!TryResolveVariant(inParseContext.Plugin, data, inContext, out value))
+            if (!TryResolveVariant(context, data, out value))
             {
                 return GetDisplayedErrorString(inSource);
             }
@@ -422,6 +422,23 @@ namespace Leaf
 
             resources.ArgsList.Clear();
             return Array.Empty<VariantComparison>();
+        }
+
+        /// <summary>
+        /// Parses a comma-separated list into an array of conditions.
+        /// </summary>
+        static public LeafExpressionGroup CompileExpressionGroup(LeafNode inNode, StringSlice inConditionsList)
+        {
+            return CompileExpressionGroup(inNode.Package(), inConditionsList);
+        }
+
+        /// <summary>
+        /// Parses a comma-separated list into an array of conditions.
+        /// </summary>
+        static public LeafExpressionGroup CompileExpressionGroup(LeafNodePackage inPackage, StringSlice inConditionsList)
+        {
+            Assert.NotNull(inPackage.m_Compiler, "Cannot compile expression group outside of compilation");
+            return inPackage.m_Compiler.CompileExpressionGroup(inConditionsList);
         }
 
         #endregion // Node Parsing
