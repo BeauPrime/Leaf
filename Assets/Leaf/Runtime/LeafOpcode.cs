@@ -209,7 +209,7 @@ namespace Leaf.Runtime
 
         // Exits the current node frame and enters the given node
         // Args: StringHash32 nodeId
-        // Size: 1
+        // Size: 5
         GotoNode,
 
         // Exits the current node frame and enters the node with the id on the stack

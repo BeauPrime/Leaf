@@ -61,7 +61,18 @@ namespace Leaf.Runtime
 
         static internal uint ReadUInt32(byte[] inBytes, ref uint ioProgramCounter)
         {
-            return (uint) ReadInt32(inBytes, ref ioProgramCounter);
+            fixed(byte* ptr = &inBytes[ioProgramCounter])
+            {
+                ioProgramCounter += 4;
+                if (((uint) ptr % 4) == 0)
+                {
+                    return *(uint*)(ptr);
+                }
+                else
+                {
+                    return ((uint) (*ptr) | (uint) (ptr[1] << 8) | (uint) (ptr[2] << 16) | (uint) (ptr[3] << 24));
+                }
+            }
         }
 
         static internal uint WriteInt32(RingBuffer<byte> ioBytes, int inValue)
@@ -83,18 +94,8 @@ namespace Leaf.Runtime
 
         static internal int ReadInt32(byte[] inBytes, ref uint ioProgramCounter)
         {
-            fixed(byte* ptr = &inBytes[ioProgramCounter])
-            {
-                ioProgramCounter += 4;
-                if (((uint) ptr % 4) == 0)
-                {
-                    return *(int*)(ptr);
-                }
-                else
-                {
-                    return ((*ptr) | (ptr[1] << 8) | (ptr[2] << 16) | (ptr[3] << 24));
-                }
-            }
+            uint read = ReadUInt32(inBytes, ref ioProgramCounter);
+            return *(int*)&read;
         }
 
         static internal uint WriteInt16(RingBuffer<byte> ioBytes, short inValue)

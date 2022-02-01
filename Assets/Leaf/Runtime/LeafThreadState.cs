@@ -139,6 +139,9 @@ namespace Leaf.Runtime
 
         #endregion // Stack
 
+        internal abstract void InternalReadState(int inOffset, out LeafNode outNode, out uint outProgramCounter);
+        internal abstract int InternalStackSize();
+
         #region Choices
 
         /// <summary>
@@ -473,6 +476,18 @@ namespace Leaf.Runtime
             Frame currentFrame = m_FrameStack[0];
             outNode = currentFrame.Node;
             outProgramCounter = currentFrame.ProgramCounter;
+        }
+
+        internal override void InternalReadState(int inOffset, out LeafNode outNode, out uint outProgramCounter)
+        {
+            Frame currentFrame = m_FrameStack[inOffset];
+            outNode = currentFrame.Node;
+            outProgramCounter = currentFrame.ProgramCounter;
+        }
+
+        internal override int InternalStackSize()
+        {
+            return m_FrameStack.Count;
         }
 
         internal void WriteProgramCounter(uint inProgramCounter)

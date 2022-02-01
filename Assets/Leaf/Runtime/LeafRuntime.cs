@@ -925,5 +925,225 @@ namespace Leaf.Runtime
         }
 
         #endregion // Expressions
+    
+        #region Scan
+
+        static public bool PredictChoice(LeafThreadState inThread)
+        {
+            return PredictNextBlockingOperation(inThread, LeafOpcode.ShowChoices);
+        }
+
+        static public bool PredictEnd(LeafThreadState inThread)
+        {
+            return PredictNextEnd(inThread);
+        }
+
+        static internal bool PredictNextBlockingOperation(LeafThreadState inThread, LeafOpcode inOperation)
+        {
+            LeafNode node;
+            uint pc;
+            uint next;
+            int stackSize = inThread.InternalStackSize();
+            int stackOffset = 0;
+            uint end;
+            byte[] stream;
+
+            LeafOpcode op;
+            while(stackOffset < stackSize)
+            {
+                inThread.InternalReadState(stackOffset, out node, out pc);
+                end = node.m_InstructionOffset + node.m_InstructionCount;
+                stream = node.Package().m_Instructions.InstructionStream;
+                while(pc < end)
+                {
+                    op = LeafInstruction.ReadOpcode(stream, ref pc);
+                    if (op == inOperation)
+                        return true;
+
+                    next = pc + OpSize(op) - 1;
+
+                    if (ShouldInterruptScan(op))
+                        return false;
+
+                    switch(op)
+                    {
+                        case LeafOpcode.Jump:
+                            {
+                                short jmp = LeafInstruction.ReadInt16(stream, ref pc);
+                                if (jmp < 0)
+                                    return false;
+
+                                next = pc + (uint) jmp;
+                                break;
+                            }
+
+                        case LeafOpcode.ReturnFromNode:
+                            {
+                                next = end;
+                                break;
+                            }
+                    }
+
+                    pc = next;
+                }
+
+                stackOffset++;
+            }
+
+            return false;
+        }
+
+        static internal bool PredictNextEnd(LeafThreadState inThread)
+        {
+            LeafNode node;
+            uint pc;
+            uint next;
+            int stackSize = inThread.InternalStackSize();
+            int stackOffset = 0;
+            uint end;
+            byte[] stream;
+
+            LeafOpcode op;
+            while(stackOffset < stackSize)
+            {
+                inThread.InternalReadState(stackOffset, out node, out pc);
+                end = node.m_InstructionOffset + node.m_InstructionCount;
+                stream = node.Package().m_Instructions.InstructionStream;
+                while(pc < end)
+                {
+                    op = LeafInstruction.ReadOpcode(stream, ref pc);
+                    if (op == LeafOpcode.Stop)
+                        return true;
+
+                    next = pc + OpSize(op) - 1;
+
+                    if (ShouldInterruptScan(op))
+                        return false;
+
+                    switch(op)
+                    {
+                        case LeafOpcode.Jump:
+                            {
+                                short jmp = LeafInstruction.ReadInt16(stream, ref pc);
+                                if (jmp < 0)
+                                    return false;
+
+                                next = pc + (uint) jmp;
+                                break;
+                            }
+
+                        case LeafOpcode.ReturnFromNode:
+                            {
+                                next = end;
+                                break;
+                            }
+                    }
+
+                    pc = next;
+                }
+
+                stackOffset++;
+            }
+
+            return true;
+        }
+
+        static internal bool ShouldInterruptScan(LeafOpcode inOpcode)
+        {
+            switch(inOpcode)
+            {
+                case LeafOpcode.RunLine:
+                case LeafOpcode.ShowChoices:
+                case LeafOpcode.Invoke:
+                case LeafOpcode.Invoke_Unoptimized:
+                case LeafOpcode.InvokeWithTarget:
+                case LeafOpcode.InvokeWithTarget_Unoptimized:
+                case LeafOpcode.GotoNode:
+                case LeafOpcode.GotoNodeIndirect:
+                case LeafOpcode.BranchNode:
+                case LeafOpcode.BranchNodeIndirect:
+                case LeafOpcode.JoinForks:
+                case LeafOpcode.Stop:
+                case LeafOpcode.Loop:
+                case LeafOpcode.JumpIfFalse:
+                case LeafOpcode.JumpIndirect:
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
+        static internal uint OpSize(LeafOpcode inOpcode)
+        {
+            switch(inOpcode)
+            {
+                case LeafOpcode.RunLine: return 5;
+
+                case LeafOpcode.EvaluateSingleExpression: return 5;
+                case LeafOpcode.EvaluateExpressionsAnd: return 7;
+                case LeafOpcode.EvaluateExpressionsOr: return 7;
+                case LeafOpcode.EvaluateExpressionsGroup: return 7;
+
+                case LeafOpcode.Invoke_Unoptimized: return 9;
+                case LeafOpcode.InvokeWithTarget_Unoptimized: return 9;
+                case LeafOpcode.InvokeWithReturn_Unoptimized: return 9;
+
+                case LeafOpcode.Invoke: return 7;
+                case LeafOpcode.InvokeWithTarget: return 7;
+                case LeafOpcode.InvokeWithReturn: return 7;
+
+                case LeafOpcode.PushValue: return 6;
+                case LeafOpcode.PopValue: return 1;
+                case LeafOpcode.DuplicateValue: return 1;
+                
+                case LeafOpcode.LoadTableValue: return 9;
+                case LeafOpcode.StoreTableValue: return 9;
+                case LeafOpcode.IncrementTableValue: return 9;
+
+                case LeafOpcode.Add: return 1;
+                case LeafOpcode.Subtract: return 1;
+                case LeafOpcode.Multiply: return 1;
+                case LeafOpcode.Divide: return 1;
+
+                case LeafOpcode.Not: return 1;
+                case LeafOpcode.CastToBool: return 1;
+                case LeafOpcode.LessThan: return 1;
+                case LeafOpcode.LessThanOrEqualTo: return 1;
+                case LeafOpcode.EqualTo: return 1;
+                case LeafOpcode.NotEqualTo: return 1;
+                case LeafOpcode.GreaterThanOrEqualTo: return 1;
+                case LeafOpcode.GreaterThan: return 1;
+
+                case LeafOpcode.Jump: return 3;
+                case LeafOpcode.JumpIfFalse: return 3;
+                case LeafOpcode.JumpIndirect: return 1;
+
+                case LeafOpcode.GotoNode: return 5;
+                case LeafOpcode.GotoNodeIndirect: return 1;
+                case LeafOpcode.BranchNode: return 5;
+                case LeafOpcode.BranchNodeIndirect: return 1;
+
+                case LeafOpcode.Stop: return 1;
+                case LeafOpcode.Loop: return 1;
+                case LeafOpcode.Yield: return 1;
+                case LeafOpcode.NoOp: return 1;
+
+                case LeafOpcode.ForkNode: return 5;
+                case LeafOpcode.ForkNodeIndirect: return 1;
+                case LeafOpcode.ForkNodeUntracked: return 5;
+                case LeafOpcode.ForkNodeIndirectUntracked: return 1;
+
+                case LeafOpcode.JoinForks: return 1;
+
+                case LeafOpcode.AddChoiceOption: return 6;
+                case LeafOpcode.AddChoiceAnswer: return 5;
+                case LeafOpcode.ShowChoices: return 1;
+
+                default: throw new ArgumentOutOfRangeException("inOpcode");
+            }
+        }
+
+        #endregion // Scan
     }
 }
