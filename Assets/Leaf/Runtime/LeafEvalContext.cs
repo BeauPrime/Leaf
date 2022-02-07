@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2021. Autumn Beauchesne. All rights reserved.
  * Author:  Autumn Beauchesne
- * Date:    29 June 2022
+ * Date:    29 Jan 2022
  * 
  * File:    LeafEvaluationContext.cs
  * Purpose: Evaluation context for certain Leaf methods.
@@ -49,8 +49,13 @@ namespace Leaf.Runtime {
                 inPlugin,
                 inThread.Resolver,
                 inThread,
-                inThread
+                (object) inThread.Actor ?? inThread
             );
+        }
+
+        static public LeafEvalContext FromThreadHandle(LeafThreadHandle inThreadHandle)
+        {
+            return FromThread(inThreadHandle.GetThread());
         }
 
         static public LeafEvalContext FromThread(LeafThreadState inThread)
@@ -59,7 +64,7 @@ namespace Leaf.Runtime {
                 inThread.Plugin,
                 inThread.Resolver,
                 inThread,
-                inThread
+                (object) inThread.Actor ?? inThread
             );
         }
 
@@ -77,6 +82,10 @@ namespace Leaf.Runtime {
         {
             if (inObject is LeafEvalContext)
                 return (LeafEvalContext) inObject;
+
+            if (inObject is LeafThreadHandle) {
+                return FromThreadHandle((LeafThreadHandle) inObject);
+            }
 
             LeafThreadState thread = inObject as LeafThreadState;
             if (thread != null)

@@ -142,6 +142,8 @@ namespace Leaf
 
             inConfig.AddReplace("$*", (t, o) => ReplaceOperandPlugin(t, o, parseContext));
             inConfig.AddReplace("loc ", (t, o) => ReplaceLocPlugin(t, o, parseContext));
+            
+            // inConfig.AddReplace("select", (t, o) => ReplaceSelectPlugin(t, o, parseContext));
         }
 
         /// <summary>
@@ -361,6 +363,21 @@ namespace Leaf
                 return value.ToString();
             }
         }
+
+        // TODO: Finish implementing
+        // static private string ReplaceSelectPlugin(StringSlice inSource, object inContext, DefaultParseContext inParseContext)
+        // {
+        //     LeafEvalContext context = LeafEvalContext.FromObject(inContext, inParseContext.Plugin);
+
+        //     StringSlice 
+        //     int separatorIdx = inSource.IndexOf(';');
+
+        //     Variant value = default;
+        //     if (!TryResolveVariant(context, data, out value))
+        //     {
+        //         return GetDisplayedErrorString(inSource);
+        //     }
+        // }
 
         static private string ReplaceLocPlugin(TagData inTag, object inContext, DefaultParseContext inParseContext)
         {

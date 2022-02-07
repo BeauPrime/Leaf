@@ -45,15 +45,17 @@ namespace Leaf.Runtime
         internal sealed class Executor<TNode> : IEnumerator, IDisposable
             where TNode : LeafNode
         {
-            private const int State_Default = 0;
-            private const int State_Choose = 1;
-            private const int State_Join = 2;
-            private const int State_Done = -1;
+            public const int State_Default = 0;
+            public const int State_Choose = 1;
+            public const int State_Join = 2;
+            public const int State_Interrupt = 3;
+            public const int State_Done = -1;
 
             public readonly ILeafPlugin<TNode> Plugin;
             public readonly LeafThreadState<TNode> Thread;
             public readonly LeafEvalContext EvalContext;
             public IEnumerator Wait;
+            public IEnumerator InterruptWait;
             public int State;
             public LeafThreadState.RegisterState Registers;
 
@@ -62,9 +64,10 @@ namespace Leaf.Runtime
                 Plugin = inPlugin;
                 Thread = inThreadState;
                 EvalContext = LeafEvalContext.FromPlugin(inPlugin, inThreadState);
+                State = State_Done;
             }
 
-            public object Current { get { return Wait; } }
+            public object Current { get { return InterruptWait ?? Wait; } }
 
             public void Dispose() { }
 
@@ -82,6 +85,17 @@ namespace Leaf.Runtime
                 string line;
                 MethodCall method;
                 LeafChoice choice;
+
+                if (State == State_Interrupt)
+                {
+                    InterruptWait = null;
+                    State = State_Default;
+                    if (Wait != null)
+                    {
+                        return true;
+                    }
+                }
+
                 Wait = null;
 
                 switch(State)
@@ -110,6 +124,12 @@ namespace Leaf.Runtime
 
                 while(Thread.HasNodes())
                 {
+                    // if an interrupt has been injected...
+                    if (State == State_Interrupt)
+                    {
+                        return true;
+                    }
+
                     Thread.ReadState(out node, out pc);
                     block = node.Package().m_Instructions;
 
@@ -668,12 +688,21 @@ namespace Leaf.Runtime
             public void Cleanup()
             {
                 State = State_Done;
+                
                 IDisposable disposableWait = Wait as IDisposable;
                 if (disposableWait != null)
                 {
                     disposableWait.Dispose();
                 }
                 Wait = null;
+
+                IDisposable disposableInterrupt = InterruptWait as IDisposable;
+                if (disposableInterrupt != null)
+                {
+                    disposableInterrupt.Dispose();
+                }
+                InterruptWait = null;
+                
                 Registers = default;
             }
 
@@ -681,6 +710,20 @@ namespace Leaf.Runtime
             {
                 State = State_Default;
                 Wait = null;
+                InterruptWait = null;
+            }
+        
+            public void Interrupt()
+            {
+                State = State_Interrupt;
+                InterruptWait = null;
+            }
+
+            public void Interrupt(IEnumerator inWait)
+            {
+                State = State_Interrupt;
+                Assert.NotNull(inWait, "Cannot interrupt with null IEnumerator");
+                Wait = inWait;
             }
         }
 
@@ -928,17 +971,39 @@ namespace Leaf.Runtime
     
         #region Scan
 
+        /// <summary>
+        /// Predicts if a choice is going to be the next blocking leaf operation for the given thread.
+        /// </summary>
         static public bool PredictChoice(LeafThreadState inThread)
         {
             return PredictNextBlockingOperation(inThread, LeafOpcode.ShowChoices);
         }
 
+        /// <summary>
+        /// Predicts the next line code the given thread will display before the next blocking operation.
+        /// </summary>
+        static public StringHash32 PredictLine(LeafThreadState inThread)
+        {
+            return PredictNextLine(inThread);
+        }
+
+        /// <summary>
+        /// Predicts if the given thread is going to transition to another node before any more blocking operations.
+        /// </summary>
+        static public bool PredictTransition(LeafThreadState inThread)
+        {
+            return PredictNodeTransition(inThread);
+        }
+
+        /// <summary>
+        /// Predicts if the given thread is going to end before any more blocking operations.
+        /// </summary>
         static public bool PredictEnd(LeafThreadState inThread)
         {
             return PredictNextEnd(inThread);
         }
 
-        static internal bool PredictNextBlockingOperation(LeafThreadState inThread, LeafOpcode inOperation)
+        static private bool PredictNextBlockingOperation(LeafThreadState inThread, LeafOpcode inOperation)
         {
             LeafNode node;
             uint pc;
@@ -993,7 +1058,68 @@ namespace Leaf.Runtime
             return false;
         }
 
-        static internal bool PredictNextEnd(LeafThreadState inThread)
+        static private StringHash32 PredictNextLine(LeafThreadState inThread)
+        {
+            LeafNode node;
+            uint pc;
+            uint next;
+            int stackSize = inThread.InternalStackSize();
+            int stackOffset = 0;
+            uint end;
+            byte[] stream;
+
+            LeafOpcode op;
+            while(stackOffset < stackSize)
+            {
+                inThread.InternalReadState(stackOffset, out node, out pc);
+                end = node.m_InstructionOffset + node.m_InstructionCount;
+                stream = node.Package().m_Instructions.InstructionStream;
+                while(pc < end)
+                {
+                    op = LeafInstruction.ReadOpcode(stream, ref pc);
+                    if (op == LeafOpcode.RunLine)
+                    {
+                        return LeafInstruction.ReadStringHash32(stream, ref pc);
+                    }
+
+                    next = pc + OpSize(op) - 1;
+
+                    if (ShouldInterruptScan(op))
+                    {
+                        return null;
+                    }
+
+                    switch(op)
+                    {
+                        case LeafOpcode.Jump:
+                            {
+                                short jmp = LeafInstruction.ReadInt16(stream, ref pc);
+                                if (jmp < 0)
+                                {
+                                    return null;
+                                }
+
+                                next = pc + (uint) jmp;
+                                break;
+                            }
+
+                        case LeafOpcode.ReturnFromNode:
+                            {
+                                next = end;
+                                break;
+                            }
+                    }
+
+                    pc = next;
+                }
+
+                stackOffset++;
+            }
+
+            return null;
+        }
+
+        static private bool PredictNextEnd(LeafThreadState inThread)
         {
             LeafNode node;
             uint pc;
@@ -1043,6 +1169,55 @@ namespace Leaf.Runtime
                 }
 
                 stackOffset++;
+            }
+
+            return true;
+        }
+
+        static private bool PredictNodeTransition(LeafThreadState inThread)
+        {
+            LeafNode node;
+            uint pc;
+            uint next;
+            uint end;
+            byte[] stream;
+
+            LeafOpcode op;
+            inThread.InternalReadState(0, out node, out pc);
+            end = node.m_InstructionOffset + node.m_InstructionCount;
+            stream = node.Package().m_Instructions.InstructionStream;
+            while(pc < end)
+            {
+                op = LeafInstruction.ReadOpcode(stream, ref pc);
+                next = pc + OpSize(op) - 1;
+
+                switch(op)
+                {
+                    case LeafOpcode.Jump:
+                        {
+                            short jmp = LeafInstruction.ReadInt16(stream, ref pc);
+                            if (jmp < 0)
+                                return false;
+
+                            next = pc + (uint) jmp;
+                            break;
+                        }
+
+                    case LeafOpcode.ReturnFromNode:
+                    case LeafOpcode.GotoNode:
+                    case LeafOpcode.GotoNodeIndirect:
+                    case LeafOpcode.BranchNode:
+                    case LeafOpcode.BranchNodeIndirect:
+                    case LeafOpcode.Stop:
+                        {
+                            return true;
+                        }
+                }
+
+                if (ShouldInterruptScan(op))
+                    return false;
+
+                pc = next;
             }
 
             return true;

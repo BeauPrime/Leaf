@@ -344,6 +344,16 @@ namespace Leaf.Runtime
             }
         }
 
+        /// <summary>
+        /// Interrupts the current thread for a frame.
+        /// </summary>
+        public abstract void Interrupt();
+
+        /// <summary>
+        /// Interrupts the current thread to process the given IEnumerator.
+        /// </summary>
+        public abstract void Interrupt(IEnumerator inInterrupt);
+
         #endregion // Updates
 
         #region Lookups
@@ -448,6 +458,9 @@ namespace Leaf.Runtime
         private ILeafPlugin<TNode> m_Plugin;
         private readonly LeafRuntime.Executor<TNode> m_Executor;
 
+        private bool m_QueuedInterrupt;
+        private IEnumerator m_QueuedInterruptWait;
+
         public LeafThreadState(ILeafPlugin<TNode> inPlugin)
             : base(inPlugin)
         {
@@ -466,6 +479,19 @@ namespace Leaf.Runtime
         internal LeafRuntime.Executor<TNode> GetExecutor()
         {
             m_Executor.Reset();
+            if (m_QueuedInterrupt)
+            {
+                if (m_QueuedInterruptWait != null)
+                {
+                    m_Executor.Interrupt(m_QueuedInterruptWait);
+                    m_QueuedInterruptWait = null;
+                }
+                else
+                {
+                    m_Executor.Interrupt();
+                }
+                m_QueuedInterrupt = false;
+            }
             return m_Executor;
         }
 
@@ -589,6 +615,37 @@ namespace Leaf.Runtime
         #endregion // Node Stack
 
         #endregion // Internal State
+
+        /// <summary>
+        /// Interrupts execution of the thread for the given frame.
+        /// </summary>
+        public override void Interrupt()
+        {
+            if (m_Executor.State == LeafRuntime.Executor<TNode>.State_Done)
+            {
+                m_QueuedInterrupt = true;
+            }
+            else
+            {
+                m_Executor.Interrupt();
+            }
+        }
+
+        /// <summary>
+        /// Interrupts execution of the thread to process the given wait.
+        /// </summary>
+        public override void Interrupt(IEnumerator inWait)
+        {
+            if (m_Executor.State == LeafRuntime.Executor<TNode>.State_Done)
+            {
+                m_QueuedInterrupt = true;
+                m_QueuedInterruptWait = inWait;
+            }
+            else
+            {
+                m_Executor.Interrupt(inWait);
+            }
+        }
 
         #region Cleanup
 
