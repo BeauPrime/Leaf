@@ -26,6 +26,8 @@ namespace Leaf
     /// </summary>
     static public class LeafUtils
     {
+        #region Consts
+
         /// <summary>
         /// Special "this" identifier.
         /// </summary>
@@ -41,7 +43,30 @@ namespace Leaf
         /// </summary>
         static public readonly StringHash32 LocalIdentifier = "local";
 
+        /// <summary>
+        /// Built-in events.
+        /// </summary>
+        static public class Events
+        {
+            /// <summary>
+            /// Wait event. Will pause for a certain number of seconds.
+            /// </summary>
+            static public readonly StringHash32 Wait = "_wait";
+
+            /// <summary>
+            /// Character event. Will specify a character and, optionally, a pose
+            /// </summary>
+            static public readonly StringHash32 Character = "_character-id";
+
+            /// <summary>
+            /// Pose event. Will specify a pose for the current character.
+            /// </summary>
+            static public readonly StringHash32 Pose = "_character-pose";
+        }
+
         static internal readonly Type ActorType = typeof(ILeafActor);
+
+        #endregion // Consts
 
         #region Identifiers
 
@@ -142,8 +167,13 @@ namespace Leaf
 
             inConfig.AddReplace("$*", (t, o) => ReplaceOperandPlugin(t, o, parseContext));
             inConfig.AddReplace("loc ", (t, o) => ReplaceLocPlugin(t, o, parseContext));
-            
             // inConfig.AddReplace("select", (t, o) => ReplaceSelectPlugin(t, o, parseContext));
+
+            // default event types
+
+            inConfig.AddEvent("wait", Events.Wait).WithFloatData(0.25f);
+            inConfig.AddEvent("@*", Events.Character).ProcessWith(ParseCharacterArgument);
+            inConfig.AddEvent("#*", Events.Pose).ProcessWith(ParsePoseArgument);
         }
 
         /// <summary>
@@ -151,8 +181,149 @@ namespace Leaf
         /// </summary>
         static public void ConfigureDefaultHandlers(TagStringEventHandler inHandler, ILeafPlugin inPlugin)
         {
-            
+            inHandler.Register(Events.Wait, (eData, context) => Routine.WaitSeconds(eData.GetFloat()));
         }
+
+        /// <summary>
+        /// Attempts to find the character id for a specific line.
+        /// </summary>
+        static public bool TryFindCharacterId(TagString inTag, out StringHash32 outCharacterId)
+        {
+            TagEventData evtData;
+            if (inTag.TryFindEvent(Events.Character, out evtData))
+            {
+                outCharacterId = evtData.Argument0.AsStringHash();
+                return true;
+            }
+
+            outCharacterId = default;
+            return false;
+        }
+
+        /// <summary>
+        /// Attempts to find the pose id for a specific line.
+        /// </summary>
+        static public bool TryFindPoseId(TagString inTag, out StringHash32 outPoseId)
+        {
+            TagEventData evtData;
+            if (inTag.TryFindEvent(Events.Pose, out evtData))
+            {
+                outPoseId = evtData.Argument0.AsStringHash();
+                return true;
+            }
+
+            if (inTag.TryFindEvent(Events.Character, out evtData))
+            {
+                outPoseId = evtData.Argument1.AsStringHash();
+                return true;
+            }
+
+            outPoseId = default;
+            return false;
+        }
+
+        static private void ParseCharacterArgument(TagData inTag, object inContext, ref TagEventData ioData)
+        {
+            ioData.Argument0 = inTag.Id.Substring(1).Hash32();
+            if (inTag.Data.StartsWith('#'))
+                ioData.Argument1 = inTag.Data.Substring(1).Hash32();
+        }
+
+        static private void ParsePoseArgument(TagData inTag, object inContext, ref TagEventData ioData)
+        {
+            ioData.Argument0 = inTag.Id.Substring(1).Hash32();
+        }
+
+        static private string ReplaceOperandPlugin(StringSlice inSource, object inContext, DefaultParseContext inParseContext)
+        {
+            StringSlice data = inSource.Substring(1);
+            StringSlice type = null; // TODO: Determine formatting specifiers
+            int formatSpecifierIdx = data.IndexOf('|');
+            if (formatSpecifierIdx >= 0)
+            {
+                type = data.Substring(formatSpecifierIdx + 1).Trim();
+                data = data.Substring(0, formatSpecifierIdx).TrimEnd();
+            }
+
+            LeafEvalContext context = LeafEvalContext.FromObject(inContext, inParseContext.Plugin);
+
+            Variant value = default;
+            if (!TryResolveVariant(context, data, out value))
+            {
+                return GetDisplayedErrorString(inSource);
+            }
+
+            if (type == "i" || type == "int")
+            {
+                return value.AsInt().ToString();
+            }
+            else if (type == "f" || type == "float")
+            {
+                return value.AsFloat().ToString();
+            }
+            else if (type == "b" || type == "bool")
+            {
+                return value.AsBool().ToString();
+            }
+            else if (type == "loc")
+            {
+                if (inParseContext.Localize != null)
+                {
+                    return inParseContext.Localize(value.AsStringHash(), inContext);
+                }
+                else
+                {
+                    Log.Error("[LeafUtils] 'loc' argument provided to inline leaf operand '{0}', but no localization callback was provided", inSource);
+                    return GetDisplayedErrorString(inSource);
+                }
+            }
+            else
+            {
+                return value.ToString();
+            }
+        }
+
+        // TODO: Finish implementing
+        // static private string ReplaceSelectPlugin(StringSlice inSource, object inContext, DefaultParseContext inParseContext)
+        // {
+        //     LeafEvalContext context = LeafEvalContext.FromObject(inContext, inParseContext.Plugin);
+
+        //     StringSlice 
+        //     int separatorIdx = inSource.IndexOf(';');
+
+        //     Variant value = default;
+        //     if (!TryResolveVariant(context, data, out value))
+        //     {
+        //         return GetDisplayedErrorString(inSource);
+        //     }
+        // }
+
+        static private string ReplaceLocPlugin(TagData inTag, object inContext, DefaultParseContext inParseContext)
+        {
+            if (inParseContext.Localize != null)
+            {
+                return inParseContext.Localize(inTag.Data, inContext);
+            }
+            else
+            {
+                Log.Error("[LeafUtils] 'loc' argument provided to inline leaf operand '{0}', but no localization callback was provided", inTag);
+                return GetDisplayedErrorString(inTag);
+            }
+        }
+
+        static private string GetDisplayedErrorString(StringSlice inData)
+        {
+            return string.Format("<color=red>ERROR: {0}</color>", inData.ToString());
+        }
+
+        static private string GetDisplayedErrorString(TagData inData)
+        {
+            return string.Format("<color=red>ERROR: {0}</color>", inData.ToString());
+        }
+
+        #endregion // Default Parsing Configs
+        
+        #region Resolution
 
         /// <summary>
         /// Attempts to handles inline argument syntax.
@@ -315,94 +486,7 @@ namespace Leaf
             return true;
         }
 
-        static private string ReplaceOperandPlugin(StringSlice inSource, object inContext, DefaultParseContext inParseContext)
-        {
-            StringSlice data = inSource.Substring(1);
-            StringSlice type = null; // TODO: Determine formatting specifiers
-            int formatSpecifierIdx = data.IndexOf('|');
-            if (formatSpecifierIdx >= 0)
-            {
-                type = data.Substring(formatSpecifierIdx + 1).Trim();
-                data = data.Substring(0, formatSpecifierIdx).TrimEnd();
-            }
-
-            LeafEvalContext context = LeafEvalContext.FromObject(inContext, inParseContext.Plugin);
-
-            Variant value = default;
-            if (!TryResolveVariant(context, data, out value))
-            {
-                return GetDisplayedErrorString(inSource);
-            }
-
-            if (type == "i" || type == "int")
-            {
-                return value.AsInt().ToString();
-            }
-            else if (type == "f" || type == "float")
-            {
-                return value.AsFloat().ToString();
-            }
-            else if (type == "b" || type == "bool")
-            {
-                return value.AsBool().ToString();
-            }
-            else if (type == "loc")
-            {
-                if (inParseContext.Localize != null)
-                {
-                    return inParseContext.Localize(value.AsStringHash(), inContext);
-                }
-                else
-                {
-                    Log.Error("[LeafUtils] 'loc' argument provided to inline leaf operand '{0}', but no localization callback was provided", inSource);
-                    return GetDisplayedErrorString(inSource);
-                }
-            }
-            else
-            {
-                return value.ToString();
-            }
-        }
-
-        // TODO: Finish implementing
-        // static private string ReplaceSelectPlugin(StringSlice inSource, object inContext, DefaultParseContext inParseContext)
-        // {
-        //     LeafEvalContext context = LeafEvalContext.FromObject(inContext, inParseContext.Plugin);
-
-        //     StringSlice 
-        //     int separatorIdx = inSource.IndexOf(';');
-
-        //     Variant value = default;
-        //     if (!TryResolveVariant(context, data, out value))
-        //     {
-        //         return GetDisplayedErrorString(inSource);
-        //     }
-        // }
-
-        static private string ReplaceLocPlugin(TagData inTag, object inContext, DefaultParseContext inParseContext)
-        {
-            if (inParseContext.Localize != null)
-            {
-                return inParseContext.Localize(inTag.Data, inContext);
-            }
-            else
-            {
-                Log.Error("[LeafUtils] 'loc' argument provided to inline leaf operand '{0}', but no localization callback was provided", inTag);
-                return GetDisplayedErrorString(inTag);
-            }
-        }
-
-        static private string GetDisplayedErrorString(StringSlice inData)
-        {
-            return string.Format("<color=red>ERROR: {0}</color>", inData.ToString());
-        }
-
-        static private string GetDisplayedErrorString(TagData inData)
-        {
-            return string.Format("<color=red>ERROR: {0}</color>", inData.ToString());
-        }
-
-        #endregion // Default Parsing Configs
+        #endregion // Resolution
     
         #region Node Parsing
 
