@@ -1250,15 +1250,23 @@ namespace Leaf.Compiler
 
                 case VariantModifyOperator.Subtract:
                     {
-                        WriteOp(LeafOpcode.LoadTableValue);
-                        WriteTableKeyPair(modification.VariableKey);
+                        if (modification.Operand.Type == VariantOperand.Mode.Variant && modification.Operand.Value.AsInt() == 1)
+                        {
+                            WriteOp(LeafOpcode.DecrementTableValue);
+                            WriteTableKeyPair(modification.VariableKey);
+                        }
+                        else
+                        {
+                            WriteOp(LeafOpcode.LoadTableValue);
+                            WriteTableKeyPair(modification.VariableKey);
 
-                        WriteVariantOperand(modification.Operand);
+                            WriteVariantOperand(modification.Operand);
 
-                        WriteOp(LeafOpcode.Subtract);
-                        
-                        WriteOp(LeafOpcode.StoreTableValue);
-                        WriteTableKeyPair(modification.VariableKey);
+                            WriteOp(LeafOpcode.Subtract);
+                            
+                            WriteOp(LeafOpcode.StoreTableValue);
+                            WriteTableKeyPair(modification.VariableKey);
+                        }
 
                         if (m_Verbose)
                         {

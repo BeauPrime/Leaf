@@ -340,6 +340,7 @@ namespace Leaf.Runtime
                     case LeafOpcode.LoadTableValue:
                     case LeafOpcode.StoreTableValue:
                     case LeafOpcode.IncrementTableValue:
+                    case LeafOpcode.DecrementTableValue:
                         {
                             TableKeyPair keyPair = ReadTableKeyPair(stream, ref pc);
                             ioBuilder.Append(' ').Append(keyPair.ToDebugString());

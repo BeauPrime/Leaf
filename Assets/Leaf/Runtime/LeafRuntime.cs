@@ -334,6 +334,15 @@ namespace Leaf.Runtime
                                 break;
                             }
 
+                        case LeafOpcode.DecrementTableValue:
+                            {
+                                Registers.B1_TableKey = LeafInstruction.ReadTableKeyPair(block.InstructionStream, ref pc);
+                                Thread.WriteProgramCounter(pc);
+
+                                Thread.IncrementVariable(Registers.B1_TableKey, -1, Thread);
+                                break;
+                            }
+
                         // ARITHMETIC
 
                         case LeafOpcode.Add:
@@ -1275,6 +1284,7 @@ namespace Leaf.Runtime
                 case LeafOpcode.LoadTableValue: return 9;
                 case LeafOpcode.StoreTableValue: return 9;
                 case LeafOpcode.IncrementTableValue: return 9;
+                case LeafOpcode.DecrementTableValue: return 9;
 
                 case LeafOpcode.Add: return 1;
                 case LeafOpcode.Subtract: return 1;
