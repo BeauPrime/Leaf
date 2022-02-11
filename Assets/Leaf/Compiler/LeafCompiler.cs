@@ -486,6 +486,8 @@ namespace Leaf.Compiler
                 m_TempStringBuilder.Append("\nEmitted ").Append(m_PackageLines.Count).Append(" text lines");
                 m_TempStringBuilder.Append("\nEmitted ").Append(m_ExpressionTable.Count).Append(" expressions");
                 m_TempStringBuilder.Append("\nEmitted ").Append(m_StringTable.Count).Append(" strings");
+                m_TempStringBuilder.Append("\nMemory Usage: ").Append(LeafInstructionBlock.CalculateMemoryUsage(ioPackage.m_Instructions)).Append(" bytes leaf / ")
+                    .Append(CalculateLineMemoryUsage(m_PackageLines)).Append(" bytes text lines");
                 
                 HashSet<TableKeyPair> unused = new HashSet<TableKeyPair>(m_ReadVariables);
                 unused.ExceptWith(m_WrittenVariables);
@@ -1575,6 +1577,20 @@ namespace Leaf.Compiler
         #endregion // Sequence Linker
 
         #region Utilities
+
+        static private long CalculateLineMemoryUsage(Dictionary<StringHash32, string> inLines)
+        {
+            long size = 0;
+            size += Unsafe.SizeOf<StringHash32>() * inLines.Count;
+
+            long sizeOfChar = sizeof(char);
+            foreach(var line in inLines.Values)
+            {
+                size += sizeOfChar * line.Length;
+            }
+
+            return size;
+        }
 
         private StringSlice ProcessNodeId(StringSlice inNodeId)
         {

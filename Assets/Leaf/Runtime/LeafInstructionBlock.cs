@@ -7,6 +7,8 @@
  * Purpose: Instruction block.
  */
 
+using BeauUtil;
+
 namespace Leaf.Runtime
 {
     public struct LeafInstructionBlock
@@ -28,5 +30,30 @@ namespace Leaf.Runtime
         }
 
         #endif // USING_BEAUDATA
+
+        /// <summary>
+        /// Calculates the approximate memory usage of the given LeafInstructionBlock.
+        /// </summary>
+        static public long CalculateMemoryUsage(LeafInstructionBlock inBlock)
+        {
+            // uninitialized block
+            if (inBlock.InstructionStream == null || inBlock.StringTable == null || inBlock.ExpressionTable == null)
+            {
+                return 0;
+            }
+
+            long size = 0;
+            size += inBlock.InstructionStream.Length;
+            size += Unsafe.SizeOf<LeafExpression>() * inBlock.ExpressionTable.Length;
+
+            StringSlice str;
+            for(int i = 0; i < inBlock.StringTable.Length; i++)
+            {
+                str = inBlock.StringTable[i];
+                size += sizeof(char) * str.Length;
+            }
+
+            return size;
+        }
     }
 }
