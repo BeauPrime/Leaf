@@ -123,6 +123,11 @@ namespace Leaf.Runtime
         // Size: 9
         IncrementTableValue,
 
+        // Decrements a value in the table by 1
+        // Args: TableKeyPair tableKey
+        // Size: 9
+        DecrementTableValue,
+
         // ARITHMETIC
 
         // Adds the top two values from the stack and pushes the result
