@@ -61,6 +61,56 @@ namespace Leaf.Compiler
             FreeCompiler(compiler);
         }
 
+        public override bool TryEvaluatePackage(IBlockParserUtil inUtil, TPackage inPackage, TNode inCurrentBlock, TagData inMetadata)
+        {
+            StringHash32 id = inMetadata.Id;
+            if (id == LeafTokens.Macro)
+            {
+                GenerateMacro(inUtil, inPackage.m_Compiler, inMetadata.Data);
+                return true;
+            }
+
+            if (id == LeafTokens.Const)
+            {
+                TagData constDefinition = TagData.Parse(inMetadata.Data, TagStringParser.CurlyBraceDelimiters);
+                inPackage.m_Compiler.DefineConst(constDefinition.Id, constDefinition.Data);
+                return true;
+            }
+
+            return false;
+        }
+
+        private void GenerateMacro(IBlockParserUtil inUtil, LeafCompiler inCompiler, StringSlice inData)
+        {
+            StringSlice firstLine = inData;
+            int lineIndex = inData.IndexOfAny(inUtil.LineBreakCharacters);
+            if (lineIndex >= 0)
+            {
+                firstLine = inData.Substring(0, lineIndex);
+            }
+
+            int openParenIdx = firstLine.IndexOf('(');
+            int closeParenIdx = firstLine.LastIndexOf(')');
+
+            if (openParenIdx < 0 || closeParenIdx < 0)
+            {
+                throw new SyntaxException(inUtil.Position, "Macro definition '{0}' does not have property formatted () operators for declaration", inData);
+            }
+
+            StringSlice replaceContents = inData.Substring(closeParenIdx + 1).TrimStart();
+
+            StringSlice idSlice = firstLine.Substring(0, openParenIdx).TrimEnd();
+            int argsLength = closeParenIdx - 1 - openParenIdx;
+            StringSlice args = firstLine.Substring(openParenIdx + 1, argsLength);
+
+            inCompiler.DefineMacro(idSlice, args, replaceContents);
+        }
+
+        public override void ProcessLine(IBlockParserUtil inUtil, TPackage inPackage, TNode inBlock, ref StringSlice ioLine)
+        {
+            inPackage.m_Compiler.PreprocessLine(inUtil.TempBuilder, ref ioLine);
+        }
+
         #endregion // Package
 
         #region Nodes

@@ -9,17 +9,18 @@
 
 using System;
 using BeauUtil.Blocks;
+using BeauUtil.Debugger;
 
 namespace Leaf.Compiler
 {
     public class SyntaxException : Exception
     {
         public SyntaxException(BlockFilePosition inPosition, string inMessage)
-            : base(string.Format("Syntax Error at {0}: {1}", inPosition, inMessage))
+            : base(Log.Format("Syntax Error at {0}: {1}", inPosition, inMessage))
         { }
 
         public SyntaxException(BlockFilePosition inPosition, string inMessage, params object[] inArgs)
-            : this(inPosition, string.Format(inMessage, inArgs))
+            : this(inPosition, Log.Format(inMessage, inArgs))
         { }
     }
 }

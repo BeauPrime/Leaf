@@ -380,6 +380,13 @@ namespace Leaf.Runtime
                             ioBuilder.Append(' ').Append(answerId.ToDebugString());
                             break;
                         }
+
+                    case LeafOpcode.AddChoiceData:
+                        {
+                            StringHash32 dataId = ReadStringHash32(stream, ref pc);
+                            ioBuilder.Append(' ').Append(dataId.ToDebugString());
+                            break;
+                        }
                 }
             }
         }

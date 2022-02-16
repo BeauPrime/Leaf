@@ -161,6 +161,14 @@ namespace Leaf.Runtime
         }
 
         /// <summary>
+        /// Adds data to the latest option to the choice buffer.
+        /// </summary>
+        public void AddOptionData(StringHash32 inDataId, Variant inDataValue)
+        {
+            m_ChoiceBuffer.AddData(new LeafChoice.Datum(inDataId, inDataValue));
+        }
+
+        /// <summary>
         /// Locks and returns the choice buffer.
         /// </summary>
         public LeafChoice GetOptions()

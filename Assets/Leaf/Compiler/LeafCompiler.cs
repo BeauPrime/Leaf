@@ -32,17 +32,6 @@ namespace Leaf.Compiler
             public string[] Errors;
         }
 
-        private class CleanedParseRules : IDelimiterRules
-        {
-            public string TagStartDelimiter { get { return string.Empty; } }
-            public string TagEndDelimiter { get { return string.Empty; } }
-            public char[] TagDataDelimiters { get { return TagData.DefaultDataDelimiters; } }
-            public char RegionCloseDelimiter { get { return (char) 0; } }
-
-            public bool RichText { get { return true; } }
-            public IEnumerable<string> AdditionalRichTextTags { get { return null; } }
-        }
-
         private class ConditionalBlockLinker
         {
             private enum BlockType
@@ -316,14 +305,20 @@ namespace Leaf.Compiler
             }
         }
 
+        private struct MacroDefinition
+        {
+            public int ArgumentCount;
+            public string Replace;
+        }
+
         private delegate void CommandHandler(BlockFilePosition inPosition, TagData inData);
 
         #endregion // Types
 
         #region Consts
 
-        static private readonly CleanedParseRules ParseRules = new CleanedParseRules();
         static private readonly char[] ContentTrimChars = new char[] { '\n', ' ', '\t', '\r' };
+        private const int MaxMacroArgs = 16;
 
         #endregion // Consts
 
@@ -339,7 +334,9 @@ namespace Leaf.Compiler
 
         // temp resources
 
-        private readonly StringBuilder m_TempStringBuilder = new StringBuilder(32);
+        private readonly object[] m_MacroReplaceArgs = new object[MaxMacroArgs];
+        private readonly Dictionary<StringHash32, string> m_MacroFormatReplacements = new Dictionary<StringHash32, string>(16);
+
         private readonly StringBuilder m_ContentBuilder;
 
         private ConditionalBlockLinker[] m_LinkerStack = new ConditionalBlockLinker[4];
@@ -349,6 +346,8 @@ namespace Leaf.Compiler
 
         private LeafNodePackage m_CurrentPackage;
         private readonly Dictionary<StringHash32, string> m_PackageLines = new Dictionary<StringHash32, string>(32);
+        private readonly Dictionary<StringHash32, MacroDefinition> m_Macros = new Dictionary<StringHash32, MacroDefinition>(4);
+        private readonly Dictionary<StringHash32, string> m_Consts = new Dictionary<StringHash32, string>(4);
 
         private readonly RingBuffer<byte> m_InstructionStream = new RingBuffer<byte>(1024, RingBufferMode.Expand);
         private readonly List<string> m_StringTable = new List<string>(32);
@@ -364,6 +363,8 @@ namespace Leaf.Compiler
         private BlockFilePosition m_ContentStartPosition;
         private ConditionalBlockLinker m_CurrentLinker;
 
+        private BlockFilePosition m_LineRetryLastRetry;
+        private int m_LineRetryCounter;
         private string m_CurrentNodeId;
         private bool m_HasChoices;
         private bool m_HasForks;
@@ -386,6 +387,8 @@ namespace Leaf.Compiler
 
             InitHandlers();
         }
+
+        #region Lifecycle
 
         /// <summary>
         /// Prepares to start compiling a module.
@@ -464,6 +467,9 @@ namespace Leaf.Compiler
 
             m_CurrentNodeInstructionLength = 0;
             m_CurrentNodeInstructionOffset = 0;
+
+            m_LineRetryCounter = 0;
+            m_LineRetryLastRetry = default;
         }
 
         /// <summary>
@@ -478,22 +484,22 @@ namespace Leaf.Compiler
             
             if (m_Verbose)
             {
-                m_TempStringBuilder.Length = 0;
+                m_BlockParserState.TempBuilder.Length = 0;
 
-                m_TempStringBuilder.Append("[LeafCompiler] Finished compiling module '")
+                m_BlockParserState.TempBuilder.Append("[LeafCompiler] Finished compiling module '")
                     .Append(ioPackage.Name()).Append('\'');
-                m_TempStringBuilder.Append("\nEmitted ").Append(m_InstructionStream.Count).Append(" bytes of instructions");
-                m_TempStringBuilder.Append("\nEmitted ").Append(m_PackageLines.Count).Append(" text lines");
-                m_TempStringBuilder.Append("\nEmitted ").Append(m_ExpressionTable.Count).Append(" expressions");
-                m_TempStringBuilder.Append("\nEmitted ").Append(m_StringTable.Count).Append(" strings");
-                m_TempStringBuilder.Append("\nMemory Usage: ").Append(LeafInstructionBlock.CalculateMemoryUsage(ioPackage.m_Instructions)).Append(" bytes leaf / ")
+                m_BlockParserState.TempBuilder.Append("\nEmitted ").Append(m_InstructionStream.Count).Append(" bytes of instructions");
+                m_BlockParserState.TempBuilder.Append("\nEmitted ").Append(m_PackageLines.Count).Append(" text lines");
+                m_BlockParserState.TempBuilder.Append("\nEmitted ").Append(m_ExpressionTable.Count).Append(" expressions");
+                m_BlockParserState.TempBuilder.Append("\nEmitted ").Append(m_StringTable.Count).Append(" strings");
+                m_BlockParserState.TempBuilder.Append("\nMemory Usage: ").Append(LeafInstructionBlock.CalculateMemoryUsage(ioPackage.m_Instructions)).Append(" bytes leaf / ")
                     .Append(CalculateLineMemoryUsage(m_PackageLines)).Append(" bytes text lines");
                 
                 HashSet<TableKeyPair> unused = new HashSet<TableKeyPair>(m_ReadVariables);
                 unused.ExceptWith(m_WrittenVariables);
                 foreach(var key in unused)
                 {
-                    m_TempStringBuilder.Append("\nWARN: Variable ").Append(key.ToDebugString()).Append(" is read but not written to");
+                    m_BlockParserState.TempBuilder.Append("\nWARN: Variable ").Append(key.ToDebugString()).Append(" is read but not written to");
                 }
 
                 unused.Clear();
@@ -501,28 +507,30 @@ namespace Leaf.Compiler
                 unused.ExceptWith(m_ReadVariables);
                 foreach(var key in unused)
                 {
-                    m_TempStringBuilder.Append("\nWARN: Variable ").Append(key.ToDebugString()).Append(" is written to but not read");
+                    m_BlockParserState.TempBuilder.Append("\nWARN: Variable ").Append(key.ToDebugString()).Append(" is written to but not read");
                 }
 
                 foreach(var methodId in m_UnrecognizedMethods)
                 {
-                    m_TempStringBuilder.Append("\nWARN: Method ").Append(methodId.ToDebugString()).Append(" is unrecognized");
+                    m_BlockParserState.TempBuilder.Append("\nWARN: Method ").Append(methodId.ToDebugString()).Append(" is unrecognized");
                 }
 
-                m_TempStringBuilder.Append("\nDisassembly:\n");
-                LeafInstruction.Disassemble(ioPackage.m_Instructions, m_TempStringBuilder);
+                m_BlockParserState.TempBuilder.Append("\nDisassembly:\n");
+                LeafInstruction.Disassemble(ioPackage.m_Instructions, m_BlockParserState.TempBuilder);
 
                 if (m_UnrecognizedMethods.Count > 0)
                 {
-                    UnityEngine.Debug.LogWarningFormat(m_TempStringBuilder.Flush());
+                    UnityEngine.Debug.LogWarningFormat(m_BlockParserState.TempBuilder.Flush());
                 }
                 else
                 {
-                    UnityEngine.Debug.LogFormat(m_TempStringBuilder.Flush());
+                    UnityEngine.Debug.LogFormat(m_BlockParserState.TempBuilder.Flush());
                 }
             }
 
             m_PackageLines.Clear();
+            m_Macros.Clear();
+            m_Consts.Clear();
             m_ExpressionTable.Clear();
             m_InstructionStream.Clear();
             m_StringTable.Clear();
@@ -543,6 +551,8 @@ namespace Leaf.Compiler
             m_ExpressionTable.Clear();
             m_StringTable.Clear();
             m_StringTableReuseMap.Clear();
+            m_Macros.Clear();
+            m_Consts.Clear();
             m_ReadVariables.Clear();
             m_WrittenVariables.Clear();
             m_UnrecognizedMethods.Clear();
@@ -560,7 +570,131 @@ namespace Leaf.Compiler
             m_RetrieveRoot = null;
             m_MethodCache = null;
             m_LinkerCount = 0;
+
+            m_LineRetryCounter = 0;
+            m_LineRetryLastRetry = default;
         }
+
+        #endregion // Lifecycle
+
+        #region Preprocessor
+
+        /// <summary>
+        /// Processes replace rules.
+        /// </summary>
+        public void PreprocessLine(StringBuilder ioStringBuilder, ref StringSlice ioLine)
+        {
+            ReplaceConsts(ioStringBuilder, m_Consts, ref ioLine);
+        }
+
+        private void ExpandMacro(BlockFilePosition inPosition, StringHash32 inMacroId, MacroDefinition inDefinition, StringSlice inArgs)
+        {
+            string text = inDefinition.Replace;
+
+            if (inDefinition.ArgumentCount == 0)
+            {
+                m_BlockParserState.InsertText(text);
+                return;
+            }
+
+            if (inDefinition.ArgumentCount == 1)
+            {
+                text = string.Format(text, inArgs);
+                m_BlockParserState.InsertText(text);
+            }
+            else
+            {
+                Array.Clear(m_MacroReplaceArgs, 0, MaxMacroArgs);
+                int argCount = 0;
+                foreach(var slice in inArgs.EnumeratedSplit(m_ArgsListSplitter, StringSplitOptions.None))
+                {
+                    m_MacroReplaceArgs[argCount++] = slice.ToString();
+                }
+                if (argCount != inDefinition.ArgumentCount)
+                {
+                    throw new SyntaxException(inPosition, "Macro '{0}' was expecting {1} arguments but {2} provided ('{3}')", inMacroId, inDefinition.ArgumentCount, argCount, inArgs);
+                }
+                text = string.Format(text, m_MacroReplaceArgs);
+                m_BlockParserState.InsertText(text);
+                Array.Clear(m_MacroReplaceArgs, 0, argCount);
+            }
+        }
+
+        /// <summary>
+        /// Defines a constant.
+        /// </summary>
+        public void DefineConst(StringHash32 inConst, StringSlice inValue)
+        {
+            m_Consts.Add(inConst, inValue.ToString());
+        }
+
+        /// <summary>
+        /// Defines a macro.
+        /// </summary>
+        public void DefineMacro(StringHash32 inMacroId, StringSlice inDefinition, StringSlice inReplace)
+        {
+            if (m_Handlers.ContainsKey(inMacroId) || inMacroId == LeafTokens.Macro || inMacroId == LeafTokens.Const)
+            {
+                throw new SyntaxException(m_BlockParserState.Position, "'{0}' is a reserved keyword and cannot be used for macros", inMacroId);
+            }
+
+            if (inDefinition.Contains('(') || inDefinition.Contains(')'))
+            {
+                throw new SyntaxException(m_BlockParserState.Position, "Argument definitions for macro '{0}' ({1}) must be a comma-separated list only");
+            }
+
+            MacroDefinition definition = new MacroDefinition();
+
+            if (inDefinition.IsEmpty)
+            {
+                definition.ArgumentCount = 0;
+                definition.Replace = inReplace.ToString();
+            }
+            else
+            {
+                m_MacroFormatReplacements.Clear();
+                foreach(var varId in inDefinition.EnumeratedSplit(m_ArgsListSplitter, StringSplitOptions.None))
+                {
+                    if (varId.IsEmpty)
+                    {
+                        throw new SyntaxException(m_BlockParserState.Position, "Argument in macro definition '{0}' ({1}) is empty", inMacroId, inDefinition);
+                    }
+
+                    StringHash32 varHash = varId;
+
+                    if (m_MacroFormatReplacements.ContainsKey(varHash))
+                    {
+                        throw new SyntaxException(m_BlockParserState.Position, "Argument id {0} in macro definition '{1}' ({2}) is repeated more than once", varId, inMacroId, inDefinition);
+                    }
+
+                    m_MacroFormatReplacements.Add(varHash, string.Concat("{", m_MacroFormatReplacements.Count, "}"));
+                }
+
+                StringSlice replace = inReplace;
+                ReplaceConsts(m_BlockParserState.TempBuilder, m_MacroFormatReplacements, ref replace);
+                definition.Replace = replace.ToString();
+
+                definition.ArgumentCount = m_MacroFormatReplacements.Count;
+                m_MacroFormatReplacements.Clear();
+            }
+
+            m_Macros[inMacroId] = definition;
+        }
+
+        /// <summary>
+        /// Undefines a macro.
+        /// </summary>
+        public void UndefineMacro(StringHash32 inMacroId)
+        {
+            if (m_Handlers.ContainsKey(inMacroId) || inMacroId == LeafTokens.Macro || inMacroId == LeafTokens.Const)
+            {
+                throw new SyntaxException(m_BlockParserState.Position, "'{0}' is a reserved keyword and cannot be used for macros", inMacroId);
+            }
+
+            m_Macros.Remove(inMacroId);
+        }
+
+        #endregion // Preprocessor
 
         #region Process
 
@@ -644,6 +778,8 @@ namespace Leaf.Compiler
                     WriteOp(LeafOpcode.GotoNodeIndirect);
                 else if (d.Data == LeafTokens.Branch)
                     WriteOp(LeafOpcode.BranchNodeIndirect);
+                else if (d.Data == LeafTokens.Continue)
+                    WriteOp(LeafOpcode.PopValue);
                 else
                     throw new SyntaxException(p, "unrecognized argument to choose statement '{0}' - must be either goto or branch", d.Data);
 
@@ -658,6 +794,11 @@ namespace Leaf.Compiler
             m_Handlers.Add(LeafTokens.Answer, (p, d) => {
                 FlushContent();
                 ProcessAnswer(p, d);
+            });
+
+            m_Handlers.Add(LeafTokens.Data, (p, d) => {
+                FlushContent();
+                ProcessData(p, d);
             });
 
             m_Handlers.Add(LeafTokens.If, (p, d) => {
@@ -745,11 +886,24 @@ namespace Leaf.Compiler
             StringHash32 commandType = data.Id;
 
             CommandHandler handler;
-            if (!m_Handlers.TryGetValue(commandType, out handler))
-                return false;
+            if (m_Handlers.TryGetValue(commandType, out handler))
+            {
+                handler(inPosition, data);
+                return true;
+            }
 
-            handler(inPosition, data);
-            return true;
+            StringSlice macroId, macroArgs;
+            if (TrySplitMethodArgs(inPosition, inLine, out macroId, out macroArgs))
+            {
+                MacroDefinition macroDef;
+                if (m_Macros.TryGetValue(macroId, out macroDef))
+                {
+                    ExpandMacro(inPosition, macroId, macroDef, macroArgs);
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         #endregion // Process
@@ -760,17 +914,17 @@ namespace Leaf.Compiler
         {
             // Syntax
             // goto node
-            // goto [node expression]
+            // goto $node expression
             // goto node, expression
-            // goto [node expression], expression
+            // goto $node expression, expression
             // branch node
-            // branch [node expression]
+            // branch $node expression
             // branch node, expression
-            // branch [node expression], expression
+            // branch $node expression, expression
             // fork node
-            // fork [node expression]
+            // fork $node expression
             // fork node, expression
-            // fork [node expression], expression
+            // fork $node expression, expression
 
             StringSlice nodeId, expression;
             SplitNodeExpression(inData.Data, out nodeId, out expression);
@@ -826,9 +980,9 @@ namespace Leaf.Compiler
         {
             // Syntax
             // choice node; text
-            // choice [node expression]; text
+            // choice $node expression; text
             // choice node, expression; text
-            // choice [node expression], expression; text
+            // choice $node expression, expression; text
 
             StringSlice args, content;
             SplitArgsContent(inData.Data, out args, out content);
@@ -891,9 +1045,9 @@ namespace Leaf.Compiler
         {
             // Syntax
             // answer answerId, node
-            // answer answerId, [node expression]
+            // answer answerId, $node expression
             // answer answerId, conditions, node
-            // answer answerId, conditions, [node expression]
+            // answer answerId, conditions, $node expression
 
             // TODO: handle method call node expressions correctly
 
@@ -956,6 +1110,63 @@ namespace Leaf.Compiler
             }
         }
 
+        private void ProcessData(BlockFilePosition inPosition, TagData inData)
+        {
+            // Syntax
+            // data dataId
+            // data dataId = value
+            // data dataId = $dataExpression
+
+            int equals;
+            equals = inData.Data.IndexOf('=');
+
+            StringSlice idSlice, valueSlice;
+
+            if (equals >= 0)
+            {
+                idSlice = inData.Data.Substring(0, equals).TrimEnd(TagData.MinimalWhitespaceChars);
+                valueSlice = inData.Data.Substring(equals + 1).TrimStart(TagData.MinimalWhitespaceChars);
+            }
+            else
+            {
+                idSlice = inData.Data;
+                valueSlice = StringSlice.Empty;
+            }
+            
+            if (idSlice.Length == 0)
+            {
+                throw new SyntaxException(inPosition, "Data id cannot be empty");
+            }
+
+            StringSlice indirectNode;
+            if (valueSlice.IsEmpty)
+            {
+                if (equals >= 0)
+                {
+                    WritePushValue(Variant.Null);
+                }
+                else
+                {
+                    WritePushValue(true);
+                }
+            }
+            else if (IsIndirect(valueSlice, out indirectNode))
+            {
+                WriteExpressionEvaluate(inPosition, indirectNode);
+            }
+            else
+            {
+                Variant dataValue;
+                if (!Variant.TryParse(valueSlice, out dataValue))
+                    throw new SyntaxException(inPosition, "data value '{0}' cannot be parsed to a Variant", valueSlice);
+
+                WritePushValue(dataValue);
+            }
+
+            WriteOp(LeafOpcode.AddChoiceData);
+            WriteStringHash32(idSlice);
+        }
+
         private void ProcessInvocation(BlockFilePosition inPosition, TagData inData)
         {
             StringHash32 targetDirect;
@@ -963,7 +1174,7 @@ namespace Leaf.Compiler
             uint argsIndex = LeafInstruction.EmptyIndex;
 
             StringSlice method, args, targetSlice;
-            SplitMethodArgs(inData.Data, out method, out args);
+            SplitMethodArgs(inPosition, inData.Data, out method, out args);
             SplitTargetMethod(method, out targetSlice, out method);
 
             StringSlice indirectTarget;
@@ -1470,12 +1681,7 @@ namespace Leaf.Compiler
                 return;
             }
 
-            if (inLine.EndsWith('\\'))
-            {
-                inLine = inLine.Substring(0, inLine.Length - 1);
-                AccumulateContent(inPosition, inLine);
-            }
-            else if (m_ContentBuilder.Length > 0 || inLine.Length > 0)
+            if (m_ContentBuilder.Length > 0 || inLine.Length > 0)
             {
                 AccumulateContent(inPosition, inLine);
                 FlushContent();
@@ -1604,7 +1810,7 @@ namespace Leaf.Compiler
         {
             if (inNodeId.StartsWith(m_Plugin.PathSeparator))
             {
-                return LeafUtils.AssembleFullId(m_TempStringBuilder, m_RetrieveRoot(), inNodeId.Substring(1), m_Plugin.PathSeparator);
+                return LeafUtils.AssembleFullId(m_BlockParserState.TempBuilder, m_RetrieveRoot(), inNodeId.Substring(1), m_Plugin.PathSeparator);
             }
 
             return inNodeId;
@@ -1640,16 +1846,41 @@ namespace Leaf.Compiler
             }
         }
 
-        static private void SplitMethodArgs(StringSlice inData, out StringSlice outMethod, out StringSlice outArgs)
+        static private void SplitMethodArgs(BlockFilePosition inPosition, StringSlice inData, out StringSlice outMethod, out StringSlice outArgs)
         {
             int openParenIdx = inData.IndexOf('(');
             int closeParenIdx = inData.LastIndexOf(')');
+
+            if (openParenIdx < 0 || closeParenIdx < 0)
+            {
+                throw new SyntaxException(inPosition, "Method call {0} does not have property formatted () operators", inData);
+            }
 
             StringSlice methodSlice = inData.Substring(0, openParenIdx).TrimEnd();
             int argsLength = closeParenIdx - 1 - openParenIdx;
 
             outMethod = methodSlice;
             outArgs = inData.Substring(openParenIdx + 1, argsLength);
+        }
+
+        static private bool TrySplitMethodArgs(BlockFilePosition inPosition, StringSlice inData, out StringSlice outMethod, out StringSlice outArgs)
+        {
+            int openParenIdx = inData.IndexOf('(');
+            int closeParenIdx = inData.LastIndexOf(')');
+
+            if (openParenIdx < 0 || closeParenIdx < 0)
+            {
+                outMethod = null;
+                outArgs = null;
+                return false;
+            }
+
+            StringSlice methodSlice = inData.Substring(0, openParenIdx).TrimEnd();
+            int argsLength = closeParenIdx - 1 - openParenIdx;
+
+            outMethod = methodSlice;
+            outArgs = inData.Substring(openParenIdx + 1, argsLength);
+            return true;
         }
 
         static private void SplitArgsContent(StringSlice inData, out StringSlice outArgs, out StringSlice outContent)
@@ -1669,9 +1900,9 @@ namespace Leaf.Compiler
 
         static private bool IsIndirect(StringSlice inValue, out StringSlice outValue)
         {
-            if (inValue.StartsWith('[') && inValue.EndsWith(']'))
+            if (inValue.StartsWith('$'))
             {
-                outValue = inValue.Substring(1, inValue.Length - 2).Trim(TagData.MinimalWhitespaceChars);
+                outValue = inValue.Substring(1).Trim(TagData.MinimalWhitespaceChars);
                 return !outValue.IsEmpty;
             }
 
@@ -1682,7 +1913,31 @@ namespace Leaf.Compiler
         private StringHash32 GenerateLocalLineCode(BlockFilePosition inFilePosition)
         {
             int lineNumber = (int) (inFilePosition.LineNumber + m_CurrentNodeLineOffset);
-            return m_CurrentNodeLineCodePrefix.Concat(lineNumber.ToStringLookup());
+            StringHash32 firstAttempt = m_CurrentNodeLineCodePrefix.Concat(lineNumber.ToStringLookup());
+            if (!m_PackageLines.ContainsKey(firstAttempt))
+            {
+                m_LineRetryLastRetry = default;
+                m_LineRetryCounter = 0;
+                return firstAttempt;
+            }
+
+            if (m_LineRetryLastRetry.FileName != inFilePosition.FileName || m_LineRetryLastRetry.LineNumber != inFilePosition.LineNumber)
+            {
+                m_LineRetryLastRetry = inFilePosition;
+                m_LineRetryCounter = 0;
+            }
+
+            StringHash32 prefix = firstAttempt.Concat("-");
+            while(++m_LineRetryCounter < 999)
+            {
+                StringHash32 suffix = prefix.Concat(m_LineRetryCounter.ToStringLookup());
+                if (!m_PackageLines.ContainsKey(suffix))
+                {
+                    return suffix;
+                }
+            }
+
+            throw new SyntaxException(inFilePosition, "Cannot generate a unique line code for this line");
         }
 
         /// <summary>
@@ -1691,6 +1946,89 @@ namespace Leaf.Compiler
         static public StringHash32 GenerateLineCode(BlockFilePosition inFilePosition, string inNodeId, int inLineOffset = 0)
         {
             return string.Format("{0}|{1}:{2}", inFilePosition.FileName, inNodeId, inFilePosition.LineNumber + inLineOffset);
+        }
+
+        static public void ReplaceConsts(StringBuilder ioStringBuilder, Dictionary<StringHash32, string> inConsts, ref StringSlice ioLine)
+        {
+            if (inConsts == null || inConsts.Count == 0)
+            {
+                return;
+            }
+
+            int offset = 0;
+            if (ioLine.StartsWith('$'))
+            {
+                offset = 1;
+            }
+
+            int potentialTokenIdx = ioLine.IndexOf('$', offset);
+            if (potentialTokenIdx < 0)
+            {
+                return;
+            }
+
+            bool bChanged = false;
+            ioStringBuilder.Length = 0;
+
+            int stringSliceOffset = 0;
+            int tokenEndIdx = -1;
+            while(potentialTokenIdx >= 0)
+            {
+                tokenEndIdx = potentialTokenIdx + 1;
+                while(tokenEndIdx < ioLine.Length)
+                {
+                    if (IsTokenEndCharacter(ioLine[tokenEndIdx]))
+                        break;
+
+                    tokenEndIdx++;
+                }
+
+                StringSlice constId = ioLine.Substring(potentialTokenIdx + 1, tokenEndIdx - 1 - potentialTokenIdx);
+                StringHash32 constHash = constId;
+
+                string constValue;
+                if (inConsts.TryGetValue(constHash, out constValue))
+                {
+                    StringSlice contentSlice = ioLine.Substring(stringSliceOffset, potentialTokenIdx - stringSliceOffset);
+                    ioStringBuilder.AppendSlice(contentSlice);
+                    ioStringBuilder.Append(constValue);
+                    stringSliceOffset = tokenEndIdx;
+                    bChanged = true;
+                }
+
+                potentialTokenIdx = ioLine.IndexOf('$', tokenEndIdx);
+            }
+
+            if (bChanged)
+            {
+                if (stringSliceOffset < ioLine.Length)
+                {
+                    ioStringBuilder.AppendSlice(ioLine.Substring(stringSliceOffset));
+                }
+                ioLine = ioStringBuilder.ToString();
+            }
+            else
+            {
+                ioStringBuilder.Length = 0;
+            }
+        }
+
+        static private bool IsTokenEndCharacter(char inChar)
+        {
+            if (char.IsWhiteSpace(inChar))
+                return true;
+            if (char.IsLetterOrDigit(inChar))
+                return false;
+            switch(inChar)
+            {
+                case '_':
+                case '-':
+                case '.':
+                    return false;
+
+                default:
+                    return true;
+            }
         }
 
         #endregion // Utilities

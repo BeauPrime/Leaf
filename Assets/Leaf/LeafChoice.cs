@@ -24,19 +24,29 @@ namespace Leaf
     /// </summary>
     public class LeafChoice : IReadOnlyList<LeafChoice.Option>
     {
+        public delegate bool OptionPredicate(LeafChoice inChoice, Option inOption);
+
         /// <summary>
         /// Single option within a choice.
         /// </summary>
         public struct Option
         {
+            public int Index { get { return m_Index; } }
+
             public readonly Variant TargetId;
             public readonly StringHash32 LineCode;
             public OptionFlags Flags;
+
             public bool IsAvailable { get { return (Flags & OptionFlags.IsAvailable) != 0; } }
+
+            internal int m_Index;
 
             internal ushort m_AnswersOffset;
             internal ushort m_AnswersLength;
             internal Variant m_DefaultAnswerTarget;
+
+            internal ushort m_DataOffset;
+            internal ushort m_DataLength;
 
             public Option(Variant inTargetId, StringHash32 inLineCode, OptionFlags inFlags = OptionFlags.IsAvailable)
             {
@@ -44,9 +54,14 @@ namespace Leaf
                 LineCode = inLineCode;
                 Flags = inFlags;
 
+                m_Index = 0;
+
                 m_AnswersOffset = 0;
                 m_AnswersLength = 0;
                 m_DefaultAnswerTarget = null;
+
+                m_DataOffset = 0;
+                m_DataLength = 0;
             }
         }
 
@@ -66,13 +81,29 @@ namespace Leaf
         }
 
         /// <summary>
+        /// Custom property on an option.
+        /// </summary>
+        public struct Datum
+        {
+            public readonly StringHash32 Id;
+            public readonly Variant Value;
+
+            public Datum(StringHash32 inId, Variant inValue)
+            {
+                Id = inId;
+                Value = inValue;
+            }
+        }
+
+        /// <summary>
         /// Flags describing intended option behavior.
         /// </summary>
         [Flags]
         public enum OptionFlags : byte
         {
             IsAvailable = 0x01,
-            IsSelector = 0x02
+            IsSelector = 0x02,
+            HasData = 0x04
         }
 
         private enum State
@@ -84,6 +115,7 @@ namespace Leaf
 
         private readonly RingBuffer<Option> m_AllOptions = new RingBuffer<Option>(4, RingBufferMode.Expand);
         private readonly RingBuffer<Answer> m_AllAnswers = new RingBuffer<Answer>(4, RingBufferMode.Expand);
+        private readonly RingBuffer<Datum> m_AllData = new RingBuffer<Datum>(4, RingBufferMode.Expand);
         private State m_State = State.Accumulating;
         private Variant m_ChosenOption;
         private int m_ChosenIndex;
@@ -109,6 +141,16 @@ namespace Leaf
             }
         }
 
+        public IEnumerable<Option> AvailableOptions(OptionPredicate inPredicate)
+        {
+            for(int i = 0; i < m_AllOptions.Count; ++i)
+            {
+                Option op = m_AllOptions[i];
+                if (op.IsAvailable && inPredicate(this, op))
+                    yield return op;
+            }
+        }
+
         public IEnumerator<Option> GetEnumerator()
         {
             return m_AllOptions.GetEnumerator();
@@ -121,6 +163,8 @@ namespace Leaf
 
         #endregion // IReadOnlyList
 
+        #region Add
+
         /// <summary>
         /// Adds an option to the choice.
         /// </summary>
@@ -128,7 +172,9 @@ namespace Leaf
         {
             if (m_State != State.Accumulating)
                 throw new InvalidOperationException(string.Format("Cannot add options while in {0} state", m_State));
+            inOption.m_Index = m_AllOptions.Count;
             inOption.m_AnswersOffset = (ushort) m_AllAnswers.Count;
+            inOption.m_DataOffset = (ushort) m_AllData.Count;
             m_AllOptions.PushBack(inOption);
             if (inOption.IsAvailable)
             {
@@ -173,6 +219,36 @@ namespace Leaf
         }
 
         /// <summary>
+        /// Adds custom data to the last option.
+        /// </summary>
+        public void AddData(Datum inDatum)
+        {
+            if (m_State != State.Accumulating)
+                throw new InvalidOperationException(string.Format("Cannot add answers while in {0} state", m_State));
+            if (m_AllOptions.Count == 0)
+                throw new InvalidOperationException("Cannot add answers when no choices have been added");
+
+            #if EXPANDED_REFS
+            ref Option option = ref m_AllOptions[m_AllOptions.Count - 1];
+            #else
+            Option option = m_AllOptions[m_AllOptions.Count - 1];
+            #endif // EXPANDED_REFS
+
+            option.Flags |= OptionFlags.HasData;
+
+            m_AllData.PushBack(inDatum);
+            option.m_DataLength++;
+            
+            #if !EXPANDED_REFS
+            m_AllOptions[m_AllOptions.Count - 1] = option;
+            #endif // !EXPANDED_REFS
+        }
+
+        #endregion // Add
+
+        #region Query
+
+        /// <summary>
         /// Returns if an option with the given target exists.
         /// </summary>
         public bool HasOption(Variant inTargetId)
@@ -185,16 +261,110 @@ namespace Leaf
         /// </summary>
         public bool HasAnswer(Variant inTargetId, Variant inAnswerId)
         {
-            int index = IndexOf(inTargetId);
-            if (index >= 0)
+            return HasAnswer(IndexOf(inTargetId), inAnswerId);
+        }
+
+        /// <summary>
+        /// Returns if an answer with the given index and answer id exists.
+        /// </summary>
+        public bool HasAnswer(int inIndex, Variant inAnswerId)
+        {
+            if (inIndex < 0)
+                return false;
+            
+            bool bDefault;
+            GetAnswerResponse(inIndex, inAnswerId, out bDefault);
+            return !bDefault;
+        }
+
+        /// <summary>
+        /// Returns the custom data associated with the given target.
+        /// </summary>
+        public ListSlice<Datum> GetCustomData(Variant inTargetId)
+        {
+            return GetCustomData(IndexOf(inTargetId));
+        }
+
+        /// <summary>
+        /// Returns the custom data associated with the given choice index.
+        /// </summary>
+        public ListSlice<Datum> GetCustomData(int inIndex)
+        {
+            if (inIndex < 0)
+                return default(ListSlice<Datum>);
+
+            Option option = m_AllOptions[inIndex];
+            return new ListSlice<Datum>(m_AllData, option.m_DataOffset, option.m_DataLength);
+        }
+
+        /// <summary>
+        /// Returns the custom data associated with the given target.
+        /// </summary>
+        public bool TryGetCustomData(Variant inTargetId, StringHash32 inDataId, out Variant outData)
+        {
+            return TryGetCustomData(IndexOf(inTargetId), inDataId, out outData);
+        }
+
+        /// <summary>
+        /// Returns the custom data associated with the given target.
+        /// </summary>
+        public bool TryGetCustomData(int inIndex, StringHash32 inDataId, out Variant outData)
+        {
+            if (inIndex < 0)
             {
-                bool bDefault;
-                GetAnswerResponse(index, inAnswerId, out bDefault);
-                return !bDefault;
+                outData = default(Variant);
+                return false;
             }
 
-            return false;
+            bool bFound;
+            outData = GetDataValue(inIndex, inDataId, out bFound);
+            return bFound;
         }
+
+        /// <summary>
+        /// Returns the custom data associated with the given target.
+        /// </summary>
+        public Variant GetCustomData(Variant inTargetId, StringHash32 inDataId, Variant inDefault = default)
+        {
+            return GetCustomData(IndexOf(inTargetId), inDataId, inDefault);
+        }
+
+        /// <summary>
+        /// Returns the custom data associated with the given option index.
+        /// </summary>
+        public Variant GetCustomData(int inIndex, StringHash32 inDataId, Variant inDefault = default)
+        {
+            if (inIndex < 0)
+                return inDefault;
+
+            bool _;
+            return GetDataValue(inIndex, inDataId, out _);
+        }
+
+        /// <summary>
+        /// Returns if the given target has custom data with the given id.
+        /// </summary>
+        public bool HasCustomData(Variant inTargetId, StringHash32 inDataId)
+        {
+            return HasCustomData(IndexOf(inTargetId), inDataId);
+        }
+
+        /// <summary>
+        /// Returns if the given target has custom data with the given id.
+        /// </summary>
+        public bool HasCustomData(int inIndex, StringHash32 inDataId)
+        {
+            if (inIndex < 0)
+                return false;
+
+            bool bFound;
+            GetDataValue(inIndex, inDataId, out bFound);
+            return bFound;
+        }
+
+        #endregion // Query
+
+        #region Modifications
 
         /// <summary>
         /// Locks options in place to present.
@@ -278,6 +448,10 @@ namespace Leaf
             m_State = State.Chosen;
         }
 
+        #endregion // Modifications
+
+        #region Post-Choice
+
         /// <summary>
         /// Returns if an option has been chosen.
         /// </summary>
@@ -302,6 +476,8 @@ namespace Leaf
             return m_ChosenIndex;
         }
 
+        #endregion // Post-Choice
+
         /// <summary>
         /// Resets choice state.
         /// </summary>
@@ -309,6 +485,7 @@ namespace Leaf
         {
             m_AllOptions.Clear();
             m_AllAnswers.Clear();
+            m_AllData.Clear();
             AvailableCount = 0;
             m_State = State.Accumulating;
             m_ChosenOption = Variant.Null;
@@ -345,6 +522,25 @@ namespace Leaf
 
             outbFound = false;
             return option.m_DefaultAnswerTarget;
+        }
+
+        private Variant GetDataValue(int inOptionIndex, StringHash32 inDataId, out bool outbFound)
+        {
+            Option option = m_AllOptions[inOptionIndex];
+            ListSlice<Datum> data = new ListSlice<Datum>(m_AllData, option.m_DataOffset, option.m_DataLength);
+            Datum check;
+            for(int i = 0; i < data.Length; i++)
+            {
+                check = data[i];
+                if (check.Id == inDataId)
+                {
+                    outbFound = true;
+                    return check.Value;
+                }
+            }
+
+            outbFound = false;
+            return Variant.Null;
         }
     }
 }

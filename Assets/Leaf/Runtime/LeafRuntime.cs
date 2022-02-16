@@ -652,6 +652,16 @@ namespace Leaf.Runtime
                                 break;
                             }
 
+                        case LeafOpcode.AddChoiceData:
+                            {
+                                Registers.B1_Identifier = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Variant = Thread.PopValue();
+                                Thread.AddOptionData(Registers.B1_Identifier, Registers.B0_Variant);
+                                break;
+                            }
+
                         case LeafOpcode.ShowChoices:
                             {
                                 Thread.WriteProgramCounter(pc);
@@ -732,7 +742,7 @@ namespace Leaf.Runtime
             {
                 State = State_Interrupt;
                 Assert.NotNull(inWait, "Cannot interrupt with null IEnumerator");
-                Wait = inWait;
+                InterruptWait = inWait;
             }
         }
 
@@ -1323,6 +1333,7 @@ namespace Leaf.Runtime
 
                 case LeafOpcode.AddChoiceOption: return 6;
                 case LeafOpcode.AddChoiceAnswer: return 5;
+                case LeafOpcode.AddChoiceData: return 5;
                 case LeafOpcode.ShowChoices: return 1;
 
                 default: throw new ArgumentOutOfRangeException("inOpcode");

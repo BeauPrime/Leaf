@@ -292,6 +292,11 @@ namespace Leaf.Runtime
         // Size: 5
         AddChoiceAnswer,
 
+        // Adds choice data
+        // Args: StringHash32 dataId
+        // Stack: pop Variant dataValue
+        AddChoiceData,
+
         // Shows any options set for the last known choice and flushes the choice
         // Stack: push Variant selectedTarget
         // Size: 1

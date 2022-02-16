@@ -23,6 +23,7 @@ namespace Leaf.Compiler
         static public readonly StringHash32 Choice = "choice";
         static public readonly StringHash32 Choose = "choose";
         static public readonly StringHash32 Continue = "continue";
+        static public readonly StringHash32 Data = "data";
         static public readonly StringHash32 Else = "else";
         static public readonly StringHash32 ElseIf = "elseif";
         static public readonly StringHash32 EndIf = "endif";
@@ -38,5 +39,8 @@ namespace Leaf.Compiler
         static public readonly StringHash32 Stop = "stop";
         static public readonly StringHash32 While = "while";
         static public readonly StringHash32 Yield = "yield";
+
+        static public readonly StringHash32 Const = "const";
+        static public readonly StringHash32 Macro = "macro";
     }
 }
