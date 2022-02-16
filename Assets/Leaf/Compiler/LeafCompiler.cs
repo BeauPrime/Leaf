@@ -623,24 +623,43 @@ namespace Leaf.Compiler
         /// <summary>
         /// Defines a constant.
         /// </summary>
-        public void DefineConst(StringHash32 inConst, StringSlice inValue)
+        public void DefineConst(StringSlice inConst, StringSlice inValue)
         {
+            if (!IsValidSimpleToken(inConst))
+            {
+                throw new SyntaxException(m_BlockParserState.Position, "'{0}' is an invalid const identifier", inConst);
+            }
+
+            StringHash32 id = inConst;
+
+            if (m_Handlers.ContainsKey(id) || id == LeafTokens.Macro || id == LeafTokens.Const)
+            {
+                throw new SyntaxException(m_BlockParserState.Position, "'{0}' is a reserved keyword and cannot be used for consts", id);
+            }
+
             m_Consts.Add(inConst, inValue.ToString());
         }
 
         /// <summary>
         /// Defines a macro.
         /// </summary>
-        public void DefineMacro(StringHash32 inMacroId, StringSlice inDefinition, StringSlice inReplace)
+        public void DefineMacro(StringSlice inMacroId, StringSlice inDefinition, StringSlice inReplace)
         {
-            if (m_Handlers.ContainsKey(inMacroId) || inMacroId == LeafTokens.Macro || inMacroId == LeafTokens.Const)
+            if (!IsValidSimpleToken(inMacroId))
             {
-                throw new SyntaxException(m_BlockParserState.Position, "'{0}' is a reserved keyword and cannot be used for macros", inMacroId);
+                throw new SyntaxException(m_BlockParserState.Position, "'{0}' is an invalid macro identifier", inMacroId);
+            }
+
+            StringHash32 id = inMacroId;
+
+            if (m_Handlers.ContainsKey(id) || id == LeafTokens.Macro || id == LeafTokens.Const)
+            {
+                throw new SyntaxException(m_BlockParserState.Position, "'{0}' is a reserved keyword and cannot be used for macros", id);
             }
 
             if (inDefinition.Contains('(') || inDefinition.Contains(')'))
             {
-                throw new SyntaxException(m_BlockParserState.Position, "Argument definitions for macro '{0}' ({1}) must be a comma-separated list only");
+                throw new SyntaxException(m_BlockParserState.Position, "Argument definitions for macro '{0}' ({1}) must be a comma-separated list only", id, inDefinition);
             }
 
             MacroDefinition definition = new MacroDefinition();
@@ -657,14 +676,14 @@ namespace Leaf.Compiler
                 {
                     if (varId.IsEmpty)
                     {
-                        throw new SyntaxException(m_BlockParserState.Position, "Argument in macro definition '{0}' ({1}) is empty", inMacroId, inDefinition);
+                        throw new SyntaxException(m_BlockParserState.Position, "Argument in macro definition '{0}' ({1}) is empty", id, inDefinition);
                     }
 
                     StringHash32 varHash = varId;
 
                     if (m_MacroFormatReplacements.ContainsKey(varHash))
                     {
-                        throw new SyntaxException(m_BlockParserState.Position, "Argument id {0} in macro definition '{1}' ({2}) is repeated more than once", varId, inMacroId, inDefinition);
+                        throw new SyntaxException(m_BlockParserState.Position, "Argument id {0} in macro definition '{1}' ({2}) is repeated more than once", varId, id, inDefinition);
                     }
 
                     m_MacroFormatReplacements.Add(varHash, string.Concat("{", m_MacroFormatReplacements.Count, "}"));
@@ -678,7 +697,7 @@ namespace Leaf.Compiler
                 m_MacroFormatReplacements.Clear();
             }
 
-            m_Macros[inMacroId] = definition;
+            m_Macros[id] = definition;
         }
 
         /// <summary>
@@ -2011,6 +2030,17 @@ namespace Leaf.Compiler
             {
                 ioStringBuilder.Length = 0;
             }
+        }
+
+        static private bool IsValidSimpleToken(StringSlice inToken)
+        {
+            for(int i = 0; i < inToken.Length; i++)
+            {
+                if (IsTokenEndCharacter(inToken[i]))
+                    return false;
+            }
+
+            return true;
         }
 
         static private bool IsTokenEndCharacter(char inChar)
