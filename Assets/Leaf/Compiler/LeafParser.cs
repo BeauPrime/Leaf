@@ -7,6 +7,7 @@
  * Purpose: Leaf block parser.
  */
 
+using System;
 using BeauUtil;
 using BeauUtil.Blocks;
 using BeauUtil.Tags;
@@ -124,7 +125,14 @@ namespace Leaf.Compiler
             inPackage.m_Compiler.StartNode(fullId, inUtil.Position);
 
             TNode node = CreateNode(fullId, inId.Data, inPackage);
-            inPackage.AddNode(node);
+            try
+            {
+                inPackage.AddNode(node);
+            }
+            catch
+            {
+                throw new SyntaxException(inUtil.Position, "Duplicate node ids {0}", fullId);
+            }
             
             outBlock = node;
             return true;
