@@ -25,6 +25,11 @@ namespace Leaf.Editor
     /// </summary>
     static public class LeafExport
     {
+        static private readonly string[] DefaultTextReplaceTags = new string[]
+        {
+            "random", "rand"
+        };
+
         public struct LeafRule<TNode, TPackage>
             where TNode: LeafNode
             where TPackage : LeafNodePackage<TNode>
@@ -69,12 +74,20 @@ namespace Leaf.Editor
             inCustomRules = inCustomRules ?? Array.Empty<CustomRule>();
             List<LeafAsset> allLeafAssets = new List<LeafAsset>();
             List<ScriptableObject>[] allCustomObjects = new List<ScriptableObject>[inCustomRules.Length];
+
             for(int i = 0; i < allCustomObjects.Length; i++)
             {
                 allCustomObjects[i] = new List<ScriptableObject>(16);
             }
 
             var allScriptableAssets = AssetDBUtils.FindAssets<ScriptableObject>(null, new string[] { inDirectory });
+
+            HashSet<string> textTags = new HashSet<string>(DefaultTextReplaceTags);
+            if (inLeafRule.TagsWithText != null)
+            {
+                foreach(var tag in inLeafRule.TagsWithText)
+                    textTags.Add(tag);
+            }
 
             foreach(var obj in allScriptableAssets)
             {
@@ -107,7 +120,7 @@ namespace Leaf.Editor
 
                 foreach(var line in package.AllLines())
                 {
-                    if (TagStringParser.ContainsText(line.Value, inLeafRule.Delimiters, inLeafRule.TagsWithText))
+                    if (TagStringParser.ContainsText(line.Value, inLeafRule.Delimiters, textTags))
                     {
                         string sourceKey = line.Key.ToDebugString();
                         string smallKey = line.Key.ToString();
@@ -125,7 +138,7 @@ namespace Leaf.Editor
                 {
                     foreach(var line in inCustomRules[i].GatherStrings(file))
                     {
-                        if (TagStringParser.ContainsText(line.Value, inLeafRule.Delimiters, inLeafRule.TagsWithText))
+                        if (TagStringParser.ContainsText(line.Value, inLeafRule.Delimiters, textTags))
                         {
                             string sourceKey = line.Key.ToDebugString();
                             string smallKey = line.Key.ToString();

@@ -19,6 +19,9 @@ namespace Leaf
         IMethodCache MethodCache { get; }
         bool TryLookupLine(StringHash32 inLineCode, LeafNode inLocalNode, out string outLine);
         bool TryLookupObject(StringHash32 inObjectId, LeafThreadState inThreadState, out object outObject);
+
+        int RandomInt(int inMin, int inMaxExclusive);
+        float RandomFloat(float inMin, float inMax);
     }
 
     public interface ILeafPlugin<TNode> : ILeafPlugin

@@ -134,6 +134,20 @@ namespace Leaf.Defaults
 
         #endregion // Handlers
 
+        #region Random
+
+        public int RandomInt(int inMin, int inMaxExclusive)
+        {
+            return UnityEngine.Random.Range(inMin, inMaxExclusive);
+        }
+
+        public float RandomFloat(float inMin, float inMax)
+        {
+            return UnityEngine.Random.Range(inMin, inMax);
+        }
+
+        #endregion // Random
+
         #region Dialog
 
         public virtual IEnumerator RunLine(LeafThreadState<TNode> inThreadState, StringSlice inLine)

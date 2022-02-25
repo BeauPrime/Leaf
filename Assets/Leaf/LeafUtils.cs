@@ -50,18 +50,33 @@ namespace Leaf
         {
             /// <summary>
             /// Wait event. Will pause for a certain number of seconds.
+            /// {wait [seconds]}
             /// </summary>
             static public readonly StringHash32 Wait = "_wait";
 
             /// <summary>
             /// Character event. Will specify a character and, optionally, a pose
+            /// {@characterId} or {@characterId #poseId}
             /// </summary>
             static public readonly StringHash32 Character = "_character-id";
 
             /// <summary>
             /// Pose event. Will specify a pose for the current character.
+            /// {#poseId}
             /// </summary>
             static public readonly StringHash32 Pose = "_character-pose";
+        }
+
+        /// <summary>
+        /// Built-in replace tags.
+        /// </summary>
+        static public class ReplaceTags
+        {
+            /// <summary>
+            /// Selects a random string to substitute.
+            /// {random contentA|contentB} or {random contentA|contentB|contentC}, etc.
+            /// </summary>
+            static public readonly StringHash32 Random = "_random";
         }
 
         static internal readonly Type ActorType = typeof(ILeafActor);
@@ -137,6 +152,15 @@ namespace Leaf
             return Routine.WaitRealSeconds(inSeconds);
         }
 
+        /// <summary>
+        /// Returns if a random value between 0 and 1 is greater than or equal to the provided fraction.
+        /// </summary>
+        [LeafMember("Chance"), UnityEngine.Scripting.Preserve]
+        static private bool Chance([BindContext] LeafEvalContext inContext, float inFraction)
+        {
+            return inContext.Plugin.RandomFloat(0, 1) >= inFraction;
+        }
+
         #endregion // Default Leaf Members
 
         #region Default Parsing Configs
@@ -167,6 +191,7 @@ namespace Leaf
 
             inConfig.AddReplace("$*", (t, o) => ReplaceOperandPlugin(t, o, parseContext));
             inConfig.AddReplace("loc ", (t, o) => ReplaceLocPlugin(t, o, parseContext));
+            inConfig.AddReplace("rand", (t, o) => ReplaceRandomPlugin(t, o, parseContext)).WithAliases("random");
             // inConfig.AddReplace("select", (t, o) => ReplaceSelectPlugin(t, o, parseContext));
 
             // default event types
@@ -280,6 +305,26 @@ namespace Leaf
             else
             {
                 return value.ToString();
+            }
+        }
+
+        static private string ReplaceRandomPlugin(TagData inTag, object inContext, DefaultParseContext inParseContext)
+        {
+            CachedListParseResources resources = (s_ListParseResources ?? (s_ListParseResources = new CachedListParseResources()));
+            TempList16<StringSlice> set = default;
+            inTag.Data.Split(resources.PipeSplitter, StringSplitOptions.None, ref set);
+
+            if (set.Count == 0)
+            {
+                return GetDisplayedErrorString(inTag);
+            }
+            else if (set.Count == 1)
+            {
+                return set[0].ToString();
+            }
+            else
+            {
+                return set[inParseContext.Plugin.RandomInt(0, set.Count)].ToString();
             }
         }
 
@@ -493,6 +538,7 @@ namespace Leaf
         private sealed class CachedListParseResources
         {
             public readonly StringSlice.ISplitter Splitter = new StringUtils.ArgsList.Splitter();
+            public readonly StringSlice.ISplitter PipeSplitter = new StringUtils.ArgsList.Splitter('|');
             public readonly List<StringSlice> ArgsList = new List<StringSlice>(16);
         }
 
