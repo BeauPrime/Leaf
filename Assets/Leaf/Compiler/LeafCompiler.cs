@@ -667,7 +667,7 @@ namespace Leaf.Compiler
             if (inDefinition.IsEmpty)
             {
                 definition.ArgumentCount = 0;
-                definition.Replace = inReplace.ToString();
+                definition.Replace = EscapeCurlyBraces(inReplace.ToString());
             }
             else
             {
@@ -689,7 +689,7 @@ namespace Leaf.Compiler
                     m_MacroFormatReplacements.Add(varHash, string.Concat("{", m_MacroFormatReplacements.Count, "}"));
                 }
 
-                StringSlice replace = inReplace;
+                StringSlice replace = EscapeCurlyBraces(inReplace.ToString());
                 ReplaceConsts(m_BlockParserState.TempBuilder, m_MacroFormatReplacements, ref replace);
                 definition.Replace = replace.ToString();
 
@@ -711,6 +711,11 @@ namespace Leaf.Compiler
             }
 
             m_Macros.Remove(inMacroId);
+        }
+
+        static private string EscapeCurlyBraces(string inMacroReplacement)
+        {
+            return inMacroReplacement.Replace("{", "{{").Replace("}", "}}");
         }
 
         #endregion // Preprocessor
