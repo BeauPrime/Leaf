@@ -165,10 +165,11 @@ namespace Leaf
 
         #region Default Parsing Configs
 
-        private struct DefaultParseContext
+        private class DefaultParseContext
         {
             public readonly ILeafPlugin Plugin;
             public readonly LocalizeDelegate Localize;
+            public RingBuffer<DefaultRandomState> RandomStates;
 
             internal DefaultParseContext(ILeafPlugin inPlugin, LocalizeDelegate inLocalize)
             {
@@ -308,24 +309,68 @@ namespace Leaf
             }
         }
 
-        static private string ReplaceRandomPlugin(TagData inTag, object inContext, DefaultParseContext inParseContext)
+        static private unsafe string ReplaceRandomPlugin(TagData inTag, object inContext, DefaultParseContext inParseContext)
         {
             CachedListParseResources resources = (s_ListParseResources ?? (s_ListParseResources = new CachedListParseResources()));
-            TempList16<StringSlice> set = default;
-            inTag.Data.Split(resources.PipeSplitter, StringSplitOptions.None, ref set);
+            var list = resources.ArgsList;
+            int count = inTag.Data.Split(resources.PipeSplitter, StringSplitOptions.None, resources.ArgsList);
 
-            if (set.Count == 0)
+            LeafEvalContext context = LeafEvalContext.FromObject(inContext, inParseContext.Plugin);
+            StringSlice returnValue = null;
+
+            if (count == 0)
             {
-                return GetDisplayedErrorString(inTag);
+                returnValue = GetDisplayedErrorString(inTag);
             }
-            else if (set.Count == 1)
+            else if (count == 1)
             {
-                return set[0].ToString();
+                returnValue = list[0];
             }
             else
             {
-                return set[inParseContext.Plugin.RandomInt(0, set.Count)].ToString();
+                int* indexBuffer = stackalloc int[count];
+                for(int i = 0; i < count; i++)
+                    indexBuffer[i] = i;
+                
+                int iterations;
+                int randomIdx = StaticRandom.Prepare(inTag.Data, inParseContext, count, out iterations);
+                
+                for(int i = 0; i <= iterations; i++)
+                {
+                    int next = StaticRandom.Random16(randomIdx, inParseContext) % count;
+                    int stringIdx = indexBuffer[next];
+                    
+                    if (i == iterations)
+                    {
+                        returnValue = list[stringIdx];
+                    }
+                    else
+                    {
+                        FastRemove(indexBuffer, ref count, stringIdx);
+                    }
+                }
             }
+
+            list.Clear();
+            return returnValue.ToString();
+        }
+
+        static private unsafe bool FastRemove(int* ioBuffer, ref int ioCount, int inElement)
+        {
+            for(int i = 0; i < ioCount; i++)
+            {
+                if (ioBuffer[i] == inElement)
+                {
+                    if (i < ioCount - 1)
+                    {
+                        ioBuffer[i] = ioBuffer[ioCount - 1];
+                    }
+                    ioCount--;
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         // TODO: Finish implementing
@@ -367,6 +412,85 @@ namespace Leaf
         }
 
         #endregion // Default Parsing Configs
+
+        #region Random
+
+        private struct DefaultRandomState
+        {
+            public StringHash32 Id;
+            public ushort FixedSeed;
+            public ushort A;
+            public ushort B;
+            public ushort VisitCount;
+        }
+
+        static private class StaticRandom
+        {
+            static internal int Prepare(StringHash32 inId, DefaultParseContext inParseContext, int inVisitCountPeriod, out int outVisitCount)
+            {
+                if (inVisitCountPeriod == 0)
+                {
+                    inVisitCountPeriod = 1;
+                }
+
+                var buffer = inParseContext.RandomStates ?? (inParseContext.RandomStates = new RingBuffer<DefaultRandomState>(32, RingBufferMode.Overwrite));
+                DefaultRandomState state;
+                for(int i = 0; i < buffer.Count; i++)
+                {
+                    state = buffer[i];
+                    if (state.Id == inId)
+                    {
+                        RandomSeed(ref state, inId, inVisitCountPeriod);
+                        outVisitCount = state.VisitCount % inVisitCountPeriod;
+                        state.VisitCount++;
+                        buffer[i] = state;
+                        return i;
+                    }
+                }
+                {
+                    state = NewRandom(inId, inParseContext.Plugin, inVisitCountPeriod);
+                    outVisitCount = state.VisitCount % inVisitCountPeriod;
+                    state.VisitCount++;
+                    buffer.PushBack(state);
+                    return buffer.Count - 1;
+                }
+            }
+
+            static internal ushort Random16(int inHandle, DefaultParseContext inParseContext)
+            {
+                var buffer = inParseContext.RandomStates ?? (inParseContext.RandomStates = new RingBuffer<DefaultRandomState>(32, RingBufferMode.Overwrite));
+                DefaultRandomState state = buffer[inHandle];
+                ushort val = NextRandom(ref state);
+                buffer[inHandle] = state;
+                return val;
+            }
+
+            static private DefaultRandomState NewRandom(StringHash32 inId, ILeafPlugin inPlugin, int inVisitCountPeriod)
+            {
+                DefaultRandomState state = default;
+                state.Id = inId;
+                state.FixedSeed = (ushort) inPlugin.RandomInt(1, ushort.MaxValue);
+                RandomSeed(ref state, inId, inVisitCountPeriod);
+                return state;
+            }
+
+            // Random Generation Algorithm from: http://b2d-f9r.blogspot.com/2010/08/16-bit-xorshift-rng-now-with-more.html
+            static private ushort NextRandom(ref DefaultRandomState ioState)
+            {
+                ushort t = (ushort) (ioState.B ^ (ioState.B << 5));
+                ioState.B = t;
+                return ioState.A = (ushort) ((ioState.A ^ (ioState.A >> 1)) ^ (t ^ (t >> 3)));
+            }
+
+            static private void RandomSeed(ref DefaultRandomState ioState, StringHash32 inId, int inPeriod)
+            {
+                int periodStart = inPeriod * (ioState.VisitCount / inPeriod);
+                ioState.A = 1;
+                ioState.B = (ushort) (1 + inId.GetHashCode() + periodStart);
+            }
+        }
+
+        #endregion // Random
         
         #region Resolution
 
