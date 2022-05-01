@@ -307,7 +307,8 @@ namespace Leaf.Compiler
 
         private struct MacroDefinition
         {
-            public int ArgumentCount;
+            public int RequiredArgumentCount;
+            public int TotalArgumentCount;
             public string Replace;
         }
 
@@ -591,13 +592,13 @@ namespace Leaf.Compiler
         {
             string text = inDefinition.Replace;
 
-            if (inDefinition.ArgumentCount == 0)
+            if (inDefinition.TotalArgumentCount == 0)
             {
                 m_BlockParserState.InsertText(text);
                 return;
             }
 
-            if (inDefinition.ArgumentCount == 1)
+            if (inDefinition.TotalArgumentCount == 1)
             {
                 text = string.Format(text, inArgs);
                 m_BlockParserState.InsertText(text);
@@ -610,9 +611,13 @@ namespace Leaf.Compiler
                 {
                     m_MacroReplaceArgs[argCount++] = slice.ToString();
                 }
-                if (argCount != inDefinition.ArgumentCount)
+                for(int i = argCount; i < inDefinition.TotalArgumentCount; i++)
                 {
-                    throw new SyntaxException(inPosition, "Macro '{0}' was expecting {1} arguments but {2} provided ('{3}')", inMacroId, inDefinition.ArgumentCount, argCount, inArgs);
+                    m_MacroReplaceArgs[i] = string.Empty;
+                }
+                if (argCount < inDefinition.RequiredArgumentCount || argCount > inDefinition.TotalArgumentCount)
+                {
+                    throw new SyntaxException(inPosition, "Macro '{0}' was expecting between {1} and {2} arguments but {2} provided ('{3}')", inMacroId, inDefinition.RequiredArgumentCount, inDefinition.TotalArgumentCount, argCount, inArgs);
                 }
                 text = string.Format(text, m_MacroReplaceArgs);
                 m_BlockParserState.InsertText(text);
@@ -666,14 +671,29 @@ namespace Leaf.Compiler
 
             if (inDefinition.IsEmpty)
             {
-                definition.ArgumentCount = 0;
+                definition.RequiredArgumentCount = 0;
+                definition.TotalArgumentCount = 0;
                 definition.Replace = EscapeCurlyBraces(inReplace.ToString());
             }
             else
             {
+                bool startOptional = false;
                 m_MacroFormatReplacements.Clear();
-                foreach(var varId in inDefinition.EnumeratedSplit(m_ArgsListSplitter, StringSplitOptions.None))
+                foreach(var varIdString in inDefinition.EnumeratedSplit(m_ArgsListSplitter, StringSplitOptions.None))
                 {
+                    StringSlice varId = varIdString;
+                    bool isOptional = varId.EndsWith("?");
+                    if (isOptional)
+                    {
+                        varId = varId.Substring(0, varId.Length - 1);
+                        startOptional = true;
+                    }
+
+                    if (!isOptional && startOptional)
+                    {
+                        throw new SyntaxException(m_BlockParserState.Position, "Argument in macro definition '{0}' has non-optional argument '{1}' located after optional arguments ({2})", id, varIdString, inDefinition);
+                    }
+
                     if (varId.IsEmpty)
                     {
                         throw new SyntaxException(m_BlockParserState.Position, "Argument in macro definition '{0}' ({1}) is empty", id, inDefinition);
@@ -683,17 +703,22 @@ namespace Leaf.Compiler
 
                     if (m_MacroFormatReplacements.ContainsKey(varHash))
                     {
-                        throw new SyntaxException(m_BlockParserState.Position, "Argument id {0} in macro definition '{1}' ({2}) is repeated more than once", varId, id, inDefinition);
+                        throw new SyntaxException(m_BlockParserState.Position, "Argument id {0} in macro definition '{1}' ({2}) is repeated more than once", varIdString, id, inDefinition);
                     }
 
                     m_MacroFormatReplacements.Add(varHash, string.Concat("{", m_MacroFormatReplacements.Count, "}"));
+                    if (!startOptional)
+                    {
+                        definition.RequiredArgumentCount++;
+                    }
+                    definition.TotalArgumentCount++;
                 }
 
                 StringSlice replace = EscapeCurlyBraces(inReplace.ToString());
                 ReplaceConsts(m_BlockParserState.TempBuilder, m_MacroFormatReplacements, ref replace);
                 definition.Replace = replace.ToString();
 
-                definition.ArgumentCount = m_MacroFormatReplacements.Count;
+                definition.TotalArgumentCount = m_MacroFormatReplacements.Count;
                 m_MacroFormatReplacements.Clear();
             }
 
