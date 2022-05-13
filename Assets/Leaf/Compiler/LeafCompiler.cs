@@ -326,6 +326,8 @@ namespace Leaf.Compiler
 
         private readonly ILeafCompilerPlugin m_Plugin;
         private bool m_Verbose;
+        private bool m_Debug;
+        private LeafCompilerFlags m_Flags;
         private Func<string> m_RetrieveRoot;
         private readonly Dictionary<StringHash32, CommandHandler> m_Handlers = new Dictionary<StringHash32, CommandHandler>(23);
         private readonly StringSlice.ISplitter m_ArgsListSplitter = new StringUtils.ArgsList.Splitter(false);
@@ -380,7 +382,7 @@ namespace Leaf.Compiler
 
             m_Plugin = inPlugin;
 
-            if (m_Plugin.CollapseContent)
+            if ((m_Plugin.CompilerFlags & LeafCompilerFlags.CollapseContent) != 0)
                 m_ContentBuilder = new StringBuilder(256);
             else
                 m_ContentBuilder = new StringBuilder(1);
@@ -393,10 +395,12 @@ namespace Leaf.Compiler
         /// <summary>
         /// Prepares to start compiling a module.
         /// </summary>
-        public void StartModule(LeafNodePackage inPackage, IMethodCache inMethodCache, IBlockParserUtil inStateUtil, bool inbVerbose)
+        public void StartModule(LeafNodePackage inPackage, IMethodCache inMethodCache, IBlockParserUtil inStateUtil, LeafCompilerFlags inFlags)
         {
             Reset();
-            m_Verbose = inbVerbose;
+            m_Flags = inFlags;
+            m_Verbose = (inFlags & LeafCompilerFlags.VerboseLog) != 0;
+            m_Debug = (inFlags & LeafCompilerFlags.DebugMode) != 0;
             m_RetrieveRoot = inPackage.RootPath;
             m_MethodCache = inMethodCache;
             m_BlockParserState = inStateUtil;
@@ -1699,7 +1703,7 @@ namespace Leaf.Compiler
 
         private void ProcessContent(BlockFilePosition inPosition, StringSlice inLine)
         {
-            if (m_Plugin.CollapseContent)
+            if ((m_Flags & LeafCompilerFlags.CollapseContent) != 0)
             {
                 AccumulateContent(inPosition, inLine);
                 return;

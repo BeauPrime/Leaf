@@ -49,7 +49,7 @@ namespace Leaf.Compiler
         public override void OnStart(IBlockParserUtil inUtil, TPackage inPackage)
         {
             inPackage.m_Compiler = AllocCompiler();
-            inPackage.m_Compiler.StartModule(inPackage, MethodCache, inUtil, IsVerbose);
+            inPackage.m_Compiler.StartModule(inPackage, MethodCache, inUtil, CompilerFlags);
             inPackage.Clear();
         }
 
@@ -159,11 +159,11 @@ namespace Leaf.Compiler
         #region Abstract
 
         /// <summary>
-        /// Indicates if compilation will output verbose debugging information.
+        /// Indicates if compilation will output verbose compilation information.
         /// </summary>
         public virtual bool IsVerbose
         {
-            get { return UnityEngine.Application.isEditor && !UnityEngine.Application.isPlaying; }
+            get { return UnityEngine.Application.isEditor; }
         }
 
         /// <summary>
@@ -183,9 +183,35 @@ namespace Leaf.Compiler
         }
 
         /// <summary>
+        /// Indicates if compilation will output debugger information.
+        /// </summary>
+        public virtual bool IsDebugMode
+        {
+            get { return UnityEngine.Debug.isDebugBuild; }
+        }
+
+        /// <summary>
         /// Creates a node for the given id and package.
         /// </summary>
         protected abstract TNode CreateNode(string inFullId, StringSlice inExtraData, TPackage inPackage);
+
+        /// <summary>
+        /// Compiler flags.
+        /// </summary>
+        public virtual LeafCompilerFlags CompilerFlags
+        {
+            get
+            {
+                LeafCompilerFlags flags = 0;
+                if (IsVerbose)
+                    flags |= LeafCompilerFlags.VerboseLog;
+                if (IsDebugMode)
+                    flags |= LeafCompilerFlags.DebugMode;
+                if (CollapseContent)
+                    flags |= LeafCompilerFlags.CollapseContent;
+                return flags;
+            }
+        }
 
         #endregion // Abstract
     }

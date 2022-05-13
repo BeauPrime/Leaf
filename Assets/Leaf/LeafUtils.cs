@@ -98,7 +98,7 @@ namespace Leaf
             if (!inRoot.IsEmpty)
             {
                 ioBuilder.AppendSlice(inRoot);
-                if (!inRoot.EndsWith(inSeparator))
+                if (!inRoot.EndsWith(inSeparator) && !inId.StartsWith(inSeparator))
                 {
                     ioBuilder.Append(inSeparator);
                 }

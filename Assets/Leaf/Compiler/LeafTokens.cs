@@ -24,6 +24,7 @@ namespace Leaf.Compiler
         static public readonly StringHash32 Choose = "choose";
         static public readonly StringHash32 Continue = "continue";
         static public readonly StringHash32 Data = "data";
+        static public readonly StringHash32 Debug = "debug";
         static public readonly StringHash32 Else = "else";
         static public readonly StringHash32 ElseIf = "elseif";
         static public readonly StringHash32 EndIf = "endif";

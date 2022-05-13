@@ -7,6 +7,8 @@
  * Purpose: Plugin interface for the LeafCompiler.
  */
 
+using System;
+
 namespace Leaf.Compiler
 {
     /// <summary>
@@ -15,6 +17,14 @@ namespace Leaf.Compiler
     public interface ILeafCompilerPlugin
     {
         char PathSeparator { get; }
-        bool CollapseContent { get; }
+        LeafCompilerFlags CompilerFlags { get; }
+    }
+
+    [Flags]
+    public enum LeafCompilerFlags : uint
+    {
+        CollapseContent = 0x01,
+        VerboseLog = 0x02,
+        DebugMode = 0x04
     }
 }
