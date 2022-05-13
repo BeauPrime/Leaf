@@ -7,10 +7,11 @@
   "author": {
     "name": "Autumn Beauchesne",
     "email": "beauchesne@beauprime.com",
-    "url": "beauprime.com"
+    "url": "http://beauprime.com"
   },
   "dependencies": {
     "com.beauprime.beauutil": "0.7.0",
     "com.beauprime.beauroutine": "0.11.1"
-  }
+  },
+  "license": "MIT"
 }
