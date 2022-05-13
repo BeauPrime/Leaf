@@ -25,7 +25,7 @@ namespace Leaf.Examples
             Continue.gameObject.SetActive(false);
 
             m_Handler = new TagStringEventHandler();
-            m_Handler.Register("Target", (e, o) => Character.SetText(e.StringArgument.ToString()));
+            m_Handler.Register(LeafUtils.Events.Character, (e, o) => Character.SetText(e.Argument0.ToString()));
         }
 
         #region ITextDisplayer
@@ -71,7 +71,7 @@ namespace Leaf.Examples
 
         #region IChoiceDisplayer
 
-        public IEnumerator ShowChoice(LeafChoice inChoice, LeafThreadState inThread, ILeafContentResolver inContentResolver)
+        public IEnumerator ShowChoice(LeafChoice inChoice, LeafThreadState inThread, ILeafPlugin inPlugin)
         {
             throw new System.NotImplementedException();
         }
