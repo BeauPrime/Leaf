@@ -160,7 +160,15 @@ namespace Leaf.Runtime
                                 }
                                 else
                                 {
-                                    Log.Error("[LeafRuntime] Could not locate line '{0}' from node '{1}'", Registers.B1_Identifier, node.Id());
+                                    var lookupLineErrorHandler = Plugin.Configuration?.OnLineLookupError;
+                                    if (lookupLineErrorHandler != null)
+                                    {
+                                        lookupLineErrorHandler(EvalContext, Registers.B1_Identifier, node.Id());
+                                    }
+                                    else
+                                    {
+                                        Log.Error("[LeafRuntime] Could not locate line '{0}' from node '{1}'", Registers.B1_Identifier, node.Id());
+                                    }
                                 }
                                 break;
                             }
@@ -263,7 +271,15 @@ namespace Leaf.Runtime
 
                                 if (!LeafUtils.TryLookupObject(Plugin, Registers.B1_Identifier, Thread, out target))
                                 {
-                                    Log.Warn("[LeafRuntime] Could not locate target {0} from node '{1}'", Registers.B1_Identifier, node.Id());
+                                    var lookupObjectErrorHandler = Plugin.Configuration?.OnObjectLookupError;
+                                    if (lookupObjectErrorHandler != null)
+                                    {
+                                        lookupObjectErrorHandler(EvalContext, Registers.B1_Identifier, node.Id());
+                                    }
+                                    else
+                                    {
+                                        Log.Warn("[LeafRuntime] Could not locate target {0} from node '{1}'", Registers.B1_Identifier, node.Id());
+                                    }
                                     break;
                                 }
 
@@ -666,7 +682,7 @@ namespace Leaf.Runtime
                             {
                                 Thread.WriteProgramCounter(pc);
 
-                                choice = Thread.GetOptions();
+                                choice = Thread.OfferOptions();
                                 if (choice.AvailableCount > 0)
                                 {
                                     Wait = Plugin.ShowOptions(Thread, choice);
@@ -767,8 +783,16 @@ namespace Leaf.Runtime
             }
             else
             {
-                Log.Error("[LeafRuntime] Could not go to node '{0}' from '{1}' - node not found",
-                    inNodeId, inLocalNode.Id());
+                var lookupNodeErrorHandler = inPlugin.Configuration?.OnNodeLookupError;
+                if (lookupNodeErrorHandler != null)
+                {
+                    lookupNodeErrorHandler(LeafEvalContext.FromThread(ioThreadState), inNodeId, inLocalNode?.Id() ?? StringHash32.Null);
+                }
+                else
+                {
+                    Log.Error("[LeafRuntime] Could not go to node '{0}' from '{1}' - node not found",
+                        inNodeId, inLocalNode.Id());
+                }
             }
         }
 
@@ -791,8 +815,16 @@ namespace Leaf.Runtime
             }
             else
             {
-                Log.Error("[LeafRuntime] Could not branch to node '{0}' from '{1}' - node not found",
-                    inNodeId, inLocalNode.Id());
+                var lookupNodeErrorHandler = inPlugin.Configuration?.OnNodeLookupError;
+                if (lookupNodeErrorHandler != null)
+                {
+                    lookupNodeErrorHandler(LeafEvalContext.FromThread(ioThreadState), inNodeId, inLocalNode?.Id() ?? StringHash32.Null);
+                }
+                else
+                {
+                    Log.Error("[LeafRuntime] Could not branch to node '{0}' from '{1}' - node not found",
+                        inNodeId, inLocalNode.Id());
+                }
             }
         }
 
@@ -818,8 +850,16 @@ namespace Leaf.Runtime
             }
             else
             {
-                Log.Error("[LeafRuntime] Could not branch to node '{0}' from '{1}' - node not found",
-                    inNodeId, inLocalNode.Id());
+                var lookupNodeErrorHandler = inPlugin.Configuration?.OnNodeLookupError;
+                if (lookupNodeErrorHandler != null)
+                {
+                    lookupNodeErrorHandler(LeafEvalContext.FromThread(ioThreadState), inNodeId, inLocalNode?.Id() ?? StringHash32.Null);
+                }
+                else
+                {
+                    Log.Error("[LeafRuntime] Could not branch to node '{0}' from '{1}' - node not found",
+                        inNodeId, inLocalNode.Id());
+                }
             }
         }
 
@@ -834,7 +874,7 @@ namespace Leaf.Runtime
         {
             IMethodCache cache = inContext.MethodCache;
             if (cache == null)
-                throw new InvalidOperationException("Cannot use DefaultLeafInvocation if ILeafPlugin.MethodCache is not specified for plugin");
+                throw new InvalidOperationException("ILeafPlugin.MethodCache is not specified for plugin");
             
             bool bSuccess;
             object result;
@@ -848,7 +888,17 @@ namespace Leaf.Runtime
             }
 
             if (!bSuccess)
-                Log.Error("[DefaultLeafInvocation] Unable to execute method '{0}'", inInvocation);
+            {
+                var methodInvokeErrorHandler = inContext.Plugin.Configuration?.OnMethodCallError;
+                if (methodInvokeErrorHandler != null)
+                {
+                    methodInvokeErrorHandler.Invoke(inContext, inInvocation, inTarget);
+                }
+                else
+                {
+                    Log.Error("[LeafRuntime] Unable to execute method '{0}'", inInvocation);
+                }
+            }
 
             return result as IEnumerator;
         }
@@ -875,7 +925,15 @@ namespace Leaf.Runtime
 
             if (!bSuccess)
             {
-                Log.Error("[LeafRuntime] Unable to execute method '{0}'", inInvocation);
+                var methodInvokeErrorHandler = inContext.Plugin.Configuration?.OnMethodCallError;
+                if (methodInvokeErrorHandler != null)
+                {
+                    methodInvokeErrorHandler.Invoke(inContext, inInvocation, inTarget);
+                }
+                else
+                {
+                    Log.Error("[LeafRuntime] Unable to execute method '{0}'", inInvocation);
+                }
                 return default(Variant);
             }
             else
@@ -1342,4 +1400,40 @@ namespace Leaf.Runtime
 
         #endregion // Scan
     }
+
+    /// <summary>
+    /// Additional runtime configuration options and error handlers.
+    /// </summary>
+    public sealed class LeafRuntimeConfiguration
+    {
+        /// <summary>
+        /// Invoked when a line fails to be located.
+        /// </summary>
+        public LeafLookupErrorHandler OnLineLookupError;
+
+        /// <summary>
+        /// Invoked when a node fails to be located.
+        /// </summary>
+        public LeafLookupErrorHandler OnNodeLookupError;
+
+        /// <summary>
+        /// Invoked when an object fails to be located.
+        /// </summary>
+        public LeafLookupErrorHandler OnObjectLookupError;
+
+        /// <summary>
+        /// Invoked when a method fails to be executed.
+        /// </summary>
+        public LeafMethodErrorHandler OnMethodCallError;
+    }
+
+    /// <summary>
+    /// Error handler for when a lookup fails.
+    /// </summary>
+    public delegate void LeafLookupErrorHandler(LeafEvalContext inContext, StringHash32 inId, StringHash32 inLocalNodeId);
+    
+    /// <summary>
+    /// Error handler for when a method call invocation fails.
+    /// </summary>
+    public delegate void LeafMethodErrorHandler(LeafEvalContext inContext, MethodCall inMethodCall, object inTarget);
 }

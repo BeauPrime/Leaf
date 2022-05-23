@@ -40,6 +40,22 @@ namespace Leaf.Runtime
         }
 
         /// <summary>
+        /// Peeks at the currently executing node.
+        /// </summary>
+        public LeafNode PeekNode()
+        {
+            LeafThreadState state = GetThread();
+            if (state != null && state.InternalStackSize() > 0)
+            {
+                LeafNode node;
+                uint pc;
+                state.InternalReadState(0, out node, out pc);
+                return node;
+            }
+            return null;
+        }
+
+        /// <summary>
         /// Retrieves the thread state, if it is still valid.
         /// </summary>
         public LeafThreadState GetThread()

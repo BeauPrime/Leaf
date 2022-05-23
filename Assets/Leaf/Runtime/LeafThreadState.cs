@@ -171,10 +171,34 @@ namespace Leaf.Runtime
         /// <summary>
         /// Locks and returns the choice buffer.
         /// </summary>
-        public LeafChoice GetOptions()
+        public LeafChoice OfferOptions()
         {
             m_ChoiceBuffer.Offer();
             return m_ChoiceBuffer;
+        }
+
+        /// <summary>
+        /// Returns the choice buffer in its current state.
+        /// </summary>
+        public LeafChoice PeekOptions()
+        {
+            return m_ChoiceBuffer;
+        }
+
+        /// <summary>
+        /// Number of available options.
+        /// </summary>
+        public int AvailableOptionCount()
+        {
+            return m_ChoiceBuffer.AvailableCount;
+        }
+
+        /// <summary>
+        /// Number of available options.
+        /// </summary>
+        public int AvailableOptionCount(LeafChoice.OptionPredicate inPredicate)
+        {
+            return m_ChoiceBuffer.AvailableOptionCount(inPredicate);
         }
 
         /// <summary>

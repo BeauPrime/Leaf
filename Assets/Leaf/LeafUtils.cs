@@ -95,13 +95,20 @@ namespace Leaf
 
         static internal string AssembleFullId(StringBuilder ioBuilder, StringSlice inRoot, StringSlice inId, char inSeparator)
         {
+            if (inId.StartsWith(inSeparator))
+            {
+                inId = inId.Substring(1);
+            }
+
             if (!inRoot.IsEmpty)
             {
-                ioBuilder.AppendSlice(inRoot);
-                if (!inRoot.EndsWith(inSeparator))
+                if (inRoot.EndsWith(inSeparator))
                 {
-                    ioBuilder.Append(inSeparator);
+                    inRoot = inRoot.Substring(0, inRoot.Length - 1);
                 }
+                
+                ioBuilder.AppendSlice(inRoot);
+                ioBuilder.Append(inSeparator);
                 ioBuilder.AppendSlice(inId);
                 return ioBuilder.Flush();
             }

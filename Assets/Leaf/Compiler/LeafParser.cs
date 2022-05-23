@@ -49,7 +49,7 @@ namespace Leaf.Compiler
         public override void OnStart(IBlockParserUtil inUtil, TPackage inPackage)
         {
             inPackage.m_Compiler = AllocCompiler();
-            inPackage.m_Compiler.StartModule(inPackage, MethodCache, inUtil, IsVerbose);
+            inPackage.m_Compiler.StartModule(inPackage, MethodCache, inUtil, CompilerFlags);
             inPackage.Clear();
         }
 
@@ -180,6 +180,22 @@ namespace Leaf.Compiler
         public virtual bool CollapseContent
         {
             get { return false; }
+        }
+
+        /// <summary>
+        /// Compilation flags.
+        /// </summary>
+        public virtual LeafCompilerFlags CompilerFlags
+        {
+            get
+            {
+                LeafCompilerFlags flags = 0;
+                if (IsVerbose)
+                    flags |= LeafCompilerFlags.Default_Development;
+                if (CollapseContent)
+                    flags |= LeafCompilerFlags.Parse_CollapseContent;
+                return flags;
+            }
         }
 
         /// <summary>

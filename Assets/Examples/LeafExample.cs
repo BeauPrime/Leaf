@@ -59,6 +59,11 @@ namespace Leaf.Examples
         {
             public override bool IsVerbose { get { return true; } }
 
+            public override LeafCompilerFlags CompilerFlags
+            {
+                get { return LeafCompilerFlags.Default_Development | LeafCompilerFlags.Dump_Stats | LeafCompilerFlags.Dump_Disassembly; }
+            }
+
             public override LeafNodePackage<LeafNode> CreatePackage(string inFileName)
             {
                 return new LeafNodePackage<LeafNode>(inFileName);

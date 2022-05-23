@@ -151,6 +151,18 @@ namespace Leaf
             }
         }
 
+        public int AvailableOptionCount(OptionPredicate inPredicate)
+        {
+            int counter = 0;
+            for(int i = 0; i < m_AllOptions.Count; ++i)
+            {
+                Option op = m_AllOptions[i];
+                if (op.IsAvailable && inPredicate(this, op))
+                    counter++;
+            }
+            return counter;
+        }
+
         public IEnumerator<Option> GetEnumerator()
         {
             return m_AllOptions.GetEnumerator();

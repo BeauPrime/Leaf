@@ -44,7 +44,6 @@
       "name": "package.openupm.com",
       "url": "https://package.openupm.com",
       "scopes": [
-        "com.beauprime.beaudata",
         "com.beauprime.beauroutine",
         "com.beauprime.beauutil",
         "com.openupm"

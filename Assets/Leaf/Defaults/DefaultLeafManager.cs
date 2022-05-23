@@ -30,6 +30,11 @@ namespace Leaf.Defaults
         /// </summary>
         public readonly CustomVariantResolver Resolver;
 
+        /// <summary>
+        /// Runtime configuration.
+        /// </summary>
+        public readonly LeafRuntimeConfiguration RuntimeConfig;
+
         protected readonly MonoBehaviour m_RoutineHost;
         protected readonly IMethodCache m_MethodCache;
         protected readonly TagStringParser m_TagParser;
@@ -40,7 +45,7 @@ namespace Leaf.Defaults
         protected ITextDisplayer m_TextDisplayer;
         protected IChoiceDisplayer m_ChoiceDisplayer;
 
-        public DefaultLeafManager(MonoBehaviour inHost, CustomVariantResolver inResolver, IMethodCache inCache = null)
+        public DefaultLeafManager(MonoBehaviour inHost, CustomVariantResolver inResolver, IMethodCache inCache = null, LeafRuntimeConfiguration inConfiguration = null)
         {
             if (inHost == null)
                 throw new ArgumentNullException("inHost");
@@ -59,6 +64,7 @@ namespace Leaf.Defaults
             }
 
             m_MethodCache = inCache ?? LeafUtils.CreateMethodCache();
+            RuntimeConfig = inConfiguration ?? new LeafRuntimeConfiguration();
             m_TagParser = new TagStringParser();
             m_TagParser.Delimiters = TagStringParser.CurlyBraceDelimiters;
         }
@@ -89,6 +95,12 @@ namespace Leaf.Defaults
         IVariantResolver ILeafVariableAccess.Resolver { get { return Resolver; } }
 
         #endregion // Caches
+
+        #region Runtime Configuration
+
+        LeafRuntimeConfiguration ILeafPlugin.Configuration { get { return RuntimeConfig; } }
+
+        #endregion // Runtime Configuration
 
         #region Routines
 

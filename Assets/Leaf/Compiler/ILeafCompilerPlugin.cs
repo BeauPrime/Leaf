@@ -15,6 +15,6 @@ namespace Leaf.Compiler
     public interface ILeafCompilerPlugin
     {
         char PathSeparator { get; }
-        bool CollapseContent { get; }
+        LeafCompilerFlags CompilerFlags { get; }
     }
 }

@@ -10,6 +10,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text;
 using BeauUtil;
 using BeauUtil.Blocks;
@@ -327,6 +328,7 @@ namespace Leaf.Compiler
 
         private readonly ILeafCompilerPlugin m_Plugin;
         private bool m_Verbose;
+        private LeafCompilerFlags m_Flags;
         private Func<string> m_RetrieveRoot;
         private readonly Dictionary<StringHash32, CommandHandler> m_Handlers = new Dictionary<StringHash32, CommandHandler>(23);
         private readonly StringSlice.ISplitter m_ArgsListSplitter = new StringUtils.ArgsList.Splitter(false);
@@ -358,6 +360,10 @@ namespace Leaf.Compiler
         private readonly HashSet<TableKeyPair> m_ReadVariables = new HashSet<TableKeyPair>();
         private readonly HashSet<TableKeyPair> m_WrittenVariables = new HashSet<TableKeyPair>();
         private readonly HashSet<StringHash32> m_UnrecognizedMethods = new HashSet<StringHash32>();
+        private readonly HashSet<StringHash32> m_UnrecognizedInstanceMethods = new HashSet<StringHash32>();
+        private readonly HashSet<StringHash32> m_ParsedNodeIds = new HashSet<StringHash32>();
+        private readonly HashSet<StringHash32> m_ReferencedNodeIds = new HashSet<StringHash32>();
+        private readonly HashSet<StringHash32> m_ReferencedLocalNodeIds = new HashSet<StringHash32>();
 
         // current node
 
@@ -381,23 +387,24 @@ namespace Leaf.Compiler
 
             m_Plugin = inPlugin;
 
-            if (m_Plugin.CollapseContent)
+            if (HasFlag(m_Plugin.CompilerFlags, LeafCompilerFlags.Parse_CollapseContent))
                 m_ContentBuilder = new StringBuilder(256);
             else
-                m_ContentBuilder = new StringBuilder(1);
+                m_ContentBuilder = new StringBuilder(32);
 
             InitHandlers();
         }
 
         #region Lifecycle
 
-        /// <summary>
+        /// <summary>p
         /// Prepares to start compiling a module.
         /// </summary>
-        public void StartModule(LeafNodePackage inPackage, IMethodCache inMethodCache, IBlockParserUtil inStateUtil, bool inbVerbose)
+        public void StartModule(LeafNodePackage inPackage, IMethodCache inMethodCache, IBlockParserUtil inStateUtil, LeafCompilerFlags inFlags)
         {
             Reset();
-            m_Verbose = inbVerbose;
+            m_Flags = inFlags;
+            m_Verbose = HasFlag(inFlags, LeafCompilerFlags.Debug);
             m_RetrieveRoot = inPackage.RootPath;
             m_MethodCache = inMethodCache;
             m_BlockParserState = inStateUtil;
@@ -424,6 +431,8 @@ namespace Leaf.Compiler
             m_CurrentNodeInstructionOffset = (uint) m_InstructionStream.Count;
             m_CurrentNodeInstructionLength = 0;
             m_CurrentNodeLineCodePrefix = new StringHash32(inStartPosition.FileName).Concat("|").Concat(inNodeId).Concat(":");
+
+            m_ParsedNodeIds.Add(inNodeId);
         }
 
         /// <summary>
@@ -457,7 +466,7 @@ namespace Leaf.Compiler
 
             ioNode.SetInstructionOffsets(m_CurrentNodeInstructionOffset, m_CurrentNodeInstructionLength);
 
-            if (m_Verbose)
+            if (HasFlag(m_Flags, LeafCompilerFlags.Generate_NoOpBoundary))
             {
                 WriteOp(LeafOpcode.NoOp);
             }
@@ -489,37 +498,93 @@ namespace Leaf.Compiler
 
                 m_BlockParserState.TempBuilder.Append("[LeafCompiler] Finished compiling module '")
                     .Append(ioPackage.Name()).Append('\'');
-                m_BlockParserState.TempBuilder.Append("\nEmitted ").Append(m_InstructionStream.Count).Append(" bytes of instructions");
-                m_BlockParserState.TempBuilder.Append("\nEmitted ").Append(m_PackageLines.Count).Append(" text lines");
-                m_BlockParserState.TempBuilder.Append("\nEmitted ").Append(m_ExpressionTable.Count).Append(" expressions");
-                m_BlockParserState.TempBuilder.Append("\nEmitted ").Append(m_StringTable.Count).Append(" strings");
-                m_BlockParserState.TempBuilder.Append("\nMemory Usage: ").Append(LeafInstructionBlock.CalculateMemoryUsage(ioPackage.m_Instructions)).Append(" bytes leaf / ")
-                    .Append(CalculateLineMemoryUsage(m_PackageLines)).Append(" bytes text lines");
-                
-                HashSet<TableKeyPair> unused = new HashSet<TableKeyPair>(m_ReadVariables);
-                unused.ExceptWith(m_WrittenVariables);
-                foreach(var key in unused)
+
+                bool hasErrors = false;
+                bool hasWarnings = false;
+
+                if (HasFlag(m_Flags, LeafCompilerFlags.Dump_Stats))
                 {
-                    m_BlockParserState.TempBuilder.Append("\nWARN: Variable ").Append(key.ToDebugString()).Append(" is read but not written to");
+                    m_BlockParserState.TempBuilder.Append("\nEmitted ").Append(m_InstructionStream.Count).Append(" bytes of instructions");
+                    m_BlockParserState.TempBuilder.Append("\nEmitted ").Append(m_PackageLines.Count).Append(" text lines");
+                    m_BlockParserState.TempBuilder.Append("\nEmitted ").Append(m_ExpressionTable.Count).Append(" expressions");
+                    m_BlockParserState.TempBuilder.Append("\nEmitted ").Append(m_StringTable.Count).Append(" strings");
+                    m_BlockParserState.TempBuilder.Append("\nMemory Usage: ").Append(LeafInstructionBlock.CalculateMemoryUsage(ioPackage.m_Instructions)).Append(" bytes leaf / ")
+                        .Append(CalculateLineMemoryUsage(m_PackageLines)).Append(" bytes text lines");
                 }
 
-                unused.Clear();
-                unused.UnionWith(m_WrittenVariables);
-                unused.ExceptWith(m_ReadVariables);
-                foreach(var key in unused)
+                if (HasFlag(m_Flags, LeafCompilerFlags.Validate_LoadStore))
                 {
-                    m_BlockParserState.TempBuilder.Append("\nWARN: Variable ").Append(key.ToDebugString()).Append(" is written to but not read");
+                    HashSet<TableKeyPair> unused = new HashSet<TableKeyPair>(m_ReadVariables);
+                    unused.ExceptWith(m_WrittenVariables);
+                    foreach(var key in unused)
+                    {
+                        m_BlockParserState.TempBuilder.Append("\nWARN: Variable ").Append(key.ToDebugString()).Append(" is read but not written to");
+                    }
+
+                    hasWarnings |= unused.Count > 0;
+
+                    unused.Clear();
+                    unused.UnionWith(m_WrittenVariables);
+                    unused.ExceptWith(m_ReadVariables);
+                    foreach(var key in unused)
+                    {
+                        m_BlockParserState.TempBuilder.Append("\nWARN: Variable ").Append(key.ToDebugString()).Append(" is written to but not read");
+                    }
+
+                    hasWarnings |= unused.Count > 0;
                 }
 
-                foreach(var methodId in m_UnrecognizedMethods)
+                if (HasFlag(m_Flags, LeafCompilerFlags.Validate_MethodInvocation))
                 {
-                    m_BlockParserState.TempBuilder.Append("\nWARN: Method ").Append(methodId.ToDebugString()).Append(" is unrecognized");
+                    foreach(var methodId in m_UnrecognizedMethods)
+                    {
+                        m_BlockParserState.TempBuilder.Append("\nERROR: Method ").Append(methodId.ToDebugString()).Append(" is unrecognized");
+                    }
+
+                    foreach(var methodId in m_UnrecognizedInstanceMethods)
+                    {
+                        m_BlockParserState.TempBuilder.Append("\nWARN: Instance Method ").Append(methodId.ToDebugString()).Append(" is unrecognized");
+                    }
+
+                    hasErrors |= m_UnrecognizedMethods.Count > 0;
+                    hasWarnings |= m_UnrecognizedInstanceMethods.Count > 0;
                 }
 
-                m_BlockParserState.TempBuilder.Append("\nDisassembly:\n");
-                LeafInstruction.Disassemble(ioPackage.m_Instructions, m_BlockParserState.TempBuilder);
+                if (HasFlag(m_Flags, LeafCompilerFlags.Validate_NodeRef))
+                {
+                    HashSet<StringHash32> unrecognizedNodeIds = new HashSet<StringHash32>(m_ReferencedNodeIds);
+                    unrecognizedNodeIds.ExceptWith(m_ParsedNodeIds);
 
-                if (m_UnrecognizedMethods.Count > 0)
+                    foreach(var nodeId in unrecognizedNodeIds)
+                    {
+                        m_BlockParserState.TempBuilder.Append("\nWARN: Node Id '").Append(nodeId.ToDebugString()).Append("' is unrecognized");
+                    }
+
+                    hasWarnings |= unrecognizedNodeIds.Count > 0;
+
+                    unrecognizedNodeIds.Clear();
+                    unrecognizedNodeIds.UnionWith(m_ReferencedLocalNodeIds);
+                    unrecognizedNodeIds.ExceptWith(m_ParsedNodeIds);
+
+                    foreach(var nodeId in unrecognizedNodeIds)
+                    {
+                        m_BlockParserState.TempBuilder.Append("\nERROR: Local Node Id '").Append(nodeId.ToDebugString()).Append("' is unrecognized");
+                    }
+
+                    hasErrors |= unrecognizedNodeIds.Count > 0;
+                }
+
+                if (HasFlag(m_Flags, LeafCompilerFlags.Dump_Disassembly))
+                {
+                    m_BlockParserState.TempBuilder.Append("\nDisassembly:\n");
+                    LeafInstruction.Disassemble(ioPackage.m_Instructions, m_BlockParserState.TempBuilder);
+                }
+
+                if (hasErrors)
+                {
+                    UnityEngine.Debug.LogErrorFormat(m_BlockParserState.TempBuilder.Flush());
+                }
+                else if (hasWarnings)
                 {
                     UnityEngine.Debug.LogWarningFormat(m_BlockParserState.TempBuilder.Flush());
                 }
@@ -557,6 +622,10 @@ namespace Leaf.Compiler
             m_ReadVariables.Clear();
             m_WrittenVariables.Clear();
             m_UnrecognizedMethods.Clear();
+            m_UnrecognizedInstanceMethods.Clear();
+            m_ParsedNodeIds.Clear();
+            m_ReferencedNodeIds.Clear();
+            m_ReferencedLocalNodeIds.Clear();
             m_MethodCache = null;
             m_CurrentPackage = null;
 
@@ -998,13 +1067,22 @@ namespace Leaf.Compiler
             }
             else
             {
-                nodeId = ProcessNodeId(nodeId);
+                bool isLocal;
+                nodeId = ProcessNodeId(nodeId, out isLocal);
 
                 if (!LeafUtils.IsValidIdentifier(nodeId))
                     throw new SyntaxException(inPosition, "node identifier '{0}' is not a valid identifier", nodeId);
                     
                 WriteOp(inDirect);
                 WriteStringHash32(nodeId);
+
+                if (HasFlag(m_Flags, LeafCompilerFlags.Validate_NodeRef))
+                {
+                    if (isLocal)
+                        m_ReferencedLocalNodeIds.Add(nodeId);
+                    else
+                        m_ReferencedNodeIds.Add(nodeId);
+                }
             }
 
             if (!expression.IsEmpty)
@@ -1062,12 +1140,21 @@ namespace Leaf.Compiler
             }
             else
             {
-                nodeId = ProcessNodeId(nodeId);
+                bool isLocal;
+                nodeId = ProcessNodeId(nodeId, out isLocal);
 
                 if (!LeafUtils.IsValidIdentifier(nodeId))
                     throw new SyntaxException(inPosition, "node identifier '{0}' is not a valid identifier", nodeId);
                     
                 WritePushValue(nodeId.Hash32());
+
+                if (HasFlag(m_Flags, LeafCompilerFlags.Validate_NodeRef))
+                {
+                    if (isLocal)
+                        m_ReferencedLocalNodeIds.Add(nodeId);
+                    else
+                        m_ReferencedNodeIds.Add(nodeId);
+                }
             }
 
             // push line code
@@ -1143,11 +1230,22 @@ namespace Leaf.Compiler
             }
             else
             {
-                nodeSlice = ProcessNodeId(nodeSlice);
+                bool isLocal;
+                nodeSlice = ProcessNodeId(nodeSlice, out isLocal);
 
                 if (!LeafUtils.IsValidIdentifier(nodeSlice))
                     throw new SyntaxException(inPosition, "node identifier '{0}' is not a valid identifier", nodeSlice);
-                WritePushValue(nodeSlice.Hash32());
+
+                StringHash32 nodeHash = nodeSlice.Hash32();
+                WritePushValue(nodeHash);
+
+                if (HasFlag(m_Flags, LeafCompilerFlags.Validate_NodeRef))
+                {
+                    if (isLocal)
+                        m_ReferencedLocalNodeIds.Add(nodeHash);
+                    else
+                        m_ReferencedNodeIds.Add(nodeHash);
+                }
             }
 
             WriteOp(LeafOpcode.AddChoiceAnswer);
@@ -1241,7 +1339,7 @@ namespace Leaf.Compiler
 
             if (targetDirect.IsEmpty)
             {
-                if (m_Verbose && m_MethodCache != null && !m_MethodCache.HasStatic(methodId))
+                if (HasFlag(m_Flags, LeafCompilerFlags.Validate_MethodInvocation) && m_MethodCache != null && !m_MethodCache.HasStatic(methodId))
                 {
                     m_UnrecognizedMethods.Add(methodId);
                 }
@@ -1259,9 +1357,9 @@ namespace Leaf.Compiler
                     WritePushValue(targetDirect);
                 }
 
-                if (m_Verbose && m_MethodCache != null && !m_MethodCache.HasInstance(methodId))
+                if (HasFlag(m_Flags, LeafCompilerFlags.Validate_MethodInvocation) && m_MethodCache != null && !m_MethodCache.HasInstance(methodId))
                 {
-                    m_UnrecognizedMethods.Add(methodId);
+                    m_UnrecognizedInstanceMethods.Add(methodId);
                 }
 
                 WriteOp(LeafOpcode.InvokeWithTarget_Unoptimized);
@@ -1474,11 +1572,6 @@ namespace Leaf.Compiler
                         
                         WriteOp(LeafOpcode.StoreTableValue);
                         WriteTableKeyPair(modification.VariableKey);
-
-                        if (m_Verbose)
-                        {
-                            m_WrittenVariables.Add(modification.VariableKey);
-                        }
                         break;
                     }
 
@@ -1502,11 +1595,6 @@ namespace Leaf.Compiler
                             WriteOp(LeafOpcode.StoreTableValue);
                             WriteTableKeyPair(modification.VariableKey);
                         }
-
-                        if (m_Verbose)
-                        {
-                            m_WrittenVariables.Add(modification.VariableKey);
-                        }
                         break;
                     }
 
@@ -1529,11 +1617,6 @@ namespace Leaf.Compiler
                             WriteOp(LeafOpcode.StoreTableValue);
                             WriteTableKeyPair(modification.VariableKey);
                         }
-
-                        if (m_Verbose)
-                        {
-                            m_WrittenVariables.Add(modification.VariableKey);
-                        }
                         break;
                     }
 
@@ -1548,11 +1631,6 @@ namespace Leaf.Compiler
                         
                         WriteOp(LeafOpcode.StoreTableValue);
                         WriteTableKeyPair(modification.VariableKey);
-
-                        if (m_Verbose)
-                        {
-                            m_WrittenVariables.Add(modification.VariableKey);
-                        }
                         break;
                     }
 
@@ -1567,11 +1645,6 @@ namespace Leaf.Compiler
                         
                         WriteOp(LeafOpcode.StoreTableValue);
                         WriteTableKeyPair(modification.VariableKey);
-
-                        if (m_Verbose)
-                        {
-                            m_WrittenVariables.Add(modification.VariableKey);
-                        }
                         break;
                     }
 
@@ -1579,6 +1652,11 @@ namespace Leaf.Compiler
                     {
                         throw new InvalidOperationException("Unknown modification operator " + modification.Operator);
                     }
+            }
+
+            if (HasFlag(m_Flags, LeafCompilerFlags.Validate_LoadStore))
+            {
+                m_WrittenVariables.Add(modification.VariableKey);
             }
         }
 
@@ -1594,7 +1672,7 @@ namespace Leaf.Compiler
 
                 case VariantOperand.Mode.TableKey:
                     {
-                        if (m_Verbose)
+                        if (HasFlag(m_Flags, LeafCompilerFlags.Validate_LoadStore))
                         {
                             m_ReadVariables.Add(inOperand.TableKey);
                         }
@@ -1609,7 +1687,7 @@ namespace Leaf.Compiler
                         MethodCall method = inOperand.MethodCall;
                         uint argsIndex = EmitStringTableEntry(method.Args);
 
-                        if (m_Verbose && m_MethodCache != null && !m_MethodCache.HasStatic(method.Id))
+                        if (HasFlag(m_Flags, LeafCompilerFlags.Validate_MethodInvocation) && m_MethodCache != null && !m_MethodCache.HasStatic(method.Id))
                         {
                             m_UnrecognizedMethods.Add(method.Id);
                         }
@@ -1651,7 +1729,7 @@ namespace Leaf.Compiler
                     }
                 case VariantOperand.Mode.TableKey:
                     {
-                        if (m_Verbose)
+                        if (HasFlag(m_Flags, LeafCompilerFlags.Validate_LoadStore))
                         {
                             m_ReadVariables.Add(inOperand.TableKey);
                         }
@@ -1664,7 +1742,7 @@ namespace Leaf.Compiler
                         MethodCall method = inOperand.MethodCall;
                         uint argsIndex = EmitStringTableEntry(method.Args);
 
-                        if (m_Verbose && m_MethodCache != null && !m_MethodCache.HasStatic(method.Id))
+                        if (HasFlag(m_Flags, LeafCompilerFlags.Validate_MethodInvocation) && m_MethodCache != null && !m_MethodCache.HasStatic(method.Id))
                         {
                             m_UnrecognizedMethods.Add(method.Id);
                         }
@@ -1724,7 +1802,7 @@ namespace Leaf.Compiler
 
         private void ProcessContent(BlockFilePosition inPosition, StringSlice inLine)
         {
-            if (m_Plugin.CollapseContent)
+            if (HasFlag(m_Flags, LeafCompilerFlags.Parse_CollapseContent))
             {
                 AccumulateContent(inPosition, inLine);
                 return;
@@ -1855,13 +1933,17 @@ namespace Leaf.Compiler
             return size;
         }
 
-        private StringSlice ProcessNodeId(StringSlice inNodeId)
+        private StringSlice ProcessNodeId(StringSlice inNodeId, out bool outbIsLocal)
         {
+            string root = m_RetrieveRoot();
+
             if (inNodeId.StartsWith(m_Plugin.PathSeparator))
             {
-                return LeafUtils.AssembleFullId(m_BlockParserState.TempBuilder, m_RetrieveRoot(), inNodeId.Substring(1), m_Plugin.PathSeparator);
+                outbIsLocal = true;
+                return LeafUtils.AssembleFullId(m_BlockParserState.TempBuilder, root, inNodeId.Substring(1), m_Plugin.PathSeparator);
             }
 
+            outbIsLocal = string.IsNullOrEmpty(root);
             return inNodeId;
         }
 
@@ -2091,6 +2173,46 @@ namespace Leaf.Compiler
             }
         }
 
+        [MethodImpl(256)]
+        static private bool HasFlag(LeafCompilerFlags inFlags, LeafCompilerFlags inMask)
+        {
+            return (inFlags & inMask) == inMask;
+        }
+
         #endregion // Utilities
+    }
+
+    /// <summary>
+    /// Compiler flags.
+    /// </summary>
+    [Flags]
+    public enum LeafCompilerFlags : uint
+    {
+        // Enables debug output
+        Debug = 0x01,
+
+        // Validates read/write of variables
+        Validate_LoadStore = 0x02,
+
+        // Validates method invocation
+        Validate_MethodInvocation = 0x04,
+        
+        // Validates references to other nodes 
+        Validate_NodeRef = 0x08,
+
+        // Generates a NoOp at node boundaries
+        Generate_NoOpBoundary = 0x10,
+
+        // Collapses sequential content lines automatically
+        Parse_CollapseContent = 0x20,
+
+        // Dumps module memory stats when module compilation is completed
+        Dump_Stats = 0x40,
+
+        // Dumps module disassembly when module compilation is completed
+        Dump_Disassembly = 0x80,
+
+        Default_Development = Debug | Validate_LoadStore | Validate_NodeRef | Validate_MethodInvocation | Generate_NoOpBoundary,
+        Default_Release = 0
     }
 }

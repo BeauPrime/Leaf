@@ -20,6 +20,8 @@ namespace Leaf
         bool TryLookupLine(StringHash32 inLineCode, LeafNode inLocalNode, out string outLine);
         bool TryLookupObject(StringHash32 inObjectId, LeafThreadState inThreadState, out object outObject);
 
+        LeafRuntimeConfiguration Configuration { get; }
+
         int RandomInt(int inMin, int inMaxExclusive);
         float RandomFloat(float inMin, float inMax);
     }

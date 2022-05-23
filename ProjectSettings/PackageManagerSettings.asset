@@ -24,7 +24,6 @@ MonoBehaviour:
     m_Name: package.openupm.com
     m_Url: https://package.openupm.com
     m_Scopes:
-    - com.beauprime.beaudata
     - com.beauprime.beauroutine
     - com.beauprime.beauutil
     - com.openupm
@@ -38,7 +37,6 @@ MonoBehaviour:
       m_Name: package.openupm.com
       m_Url: https://package.openupm.com
       m_Scopes:
-      - com.beauprime.beaudata
       - com.beauprime.beauroutine
       - com.beauprime.beauutil
       - com.openupm
@@ -47,7 +45,6 @@ MonoBehaviour:
     m_Name: package.openupm.com
     m_Url: https://package.openupm.com
     m_Scopes:
-    - com.beauprime.beaudata
     - com.beauprime.beauroutine
     - com.beauprime.beauutil
     - com.openupm
