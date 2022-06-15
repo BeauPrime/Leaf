@@ -8,6 +8,7 @@
  */
 
 using System;
+using System.Text;
 using BeauUtil;
 using BeauUtil.Blocks;
 using BeauUtil.Tags;
@@ -84,7 +85,7 @@ namespace Leaf.Compiler
         private void GenerateMacro(IBlockParserUtil inUtil, LeafCompiler inCompiler, StringSlice inData)
         {
             StringSlice firstLine = inData;
-            int lineIndex = inData.IndexOfAny(inUtil.LineBreakCharacters);
+            int lineIndex = inData.IndexOf('\n');
             if (lineIndex >= 0)
             {
                 firstLine = inData.Substring(0, lineIndex);
@@ -107,9 +108,9 @@ namespace Leaf.Compiler
             inCompiler.DefineMacro(idSlice, args, replaceContents);
         }
 
-        public override void ProcessLine(IBlockParserUtil inUtil, TPackage inPackage, TNode inBlock, ref StringSlice ioLine)
+        public override void ProcessLine(IBlockParserUtil inUtil, TPackage inPackage, TNode inBlock, StringBuilder ioLine)
         {
-            inPackage.m_Compiler.PreprocessLine(inUtil.TempBuilder, ref ioLine);
+            inPackage.m_Compiler.PreprocessLine(inUtil.TempBuilder, ioLine);
         }
 
         #endregion // Package
@@ -138,18 +139,18 @@ namespace Leaf.Compiler
             return true;
         }
 
-        public override bool TryAddContent(IBlockParserUtil inUtil, TPackage inPackage, TNode inBlock, StringSlice inContent)
+        public override bool TryAddContent(IBlockParserUtil inUtil, TPackage inPackage, TNode inBlock, StringBuilder inContent)
         {
-            inPackage.m_Compiler.Process(inUtil.Position, inContent);
+            inPackage.m_Compiler.Process(inUtil.Position, inContent.ToString());
             return true;
         }
 
-        public override void CompleteHeader(IBlockParserUtil inUtil, TPackage inPackage, TNode inBlock, TagData inAdditionalData)
+        public override void CompleteHeader(IBlockParserUtil inUtil, TPackage inPackage, TNode inBlock)
         {
             inPackage.m_Compiler.StartNodeContent(inUtil.Position);
         }
 
-        public override void CompleteBlock(IBlockParserUtil inUtil, TPackage inPackage, TNode inBlock, TagData inAdditionalData, bool inbError)
+        public override void CompleteBlock(IBlockParserUtil inUtil, TPackage inPackage, TNode inBlock, bool inbError)
         {
             inPackage.m_Compiler.FinishNode(inBlock, inUtil.Position);
         }

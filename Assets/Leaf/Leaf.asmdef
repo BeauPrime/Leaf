@@ -3,7 +3,8 @@
     "references": [
         "BeauUtil",
         "BeauRoutine",
-        "BeauData"
+        "BeauData",
+        "BeauUtil.Parse"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

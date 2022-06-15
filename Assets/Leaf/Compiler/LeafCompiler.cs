@@ -652,9 +652,9 @@ namespace Leaf.Compiler
         /// <summary>
         /// Processes replace rules.
         /// </summary>
-        public void PreprocessLine(StringBuilder ioStringBuilder, ref StringSlice ioLine)
+        public void PreprocessLine(StringBuilder ioStringBuilder)
         {
-            ReplaceConsts(ioStringBuilder, m_Consts, ref ioLine);
+            ReplaceConsts(ioStringBuilder, m_Consts);
         }
 
         private void ExpandMacro(BlockFilePosition inPosition, StringHash32 inMacroId, MacroDefinition inDefinition, StringSlice inArgs)
@@ -783,9 +783,12 @@ namespace Leaf.Compiler
                     definition.TotalArgumentCount++;
                 }
 
-                StringSlice replace = EscapeCurlyBraces(inReplace.ToString());
-                ReplaceConsts(m_BlockParserState.TempBuilder, m_MacroFormatReplacements, ref replace);
-                definition.Replace = replace.ToString();
+                StringBuilder tempBuilder = m_BlockParserState.TempBuilder;
+                tempBuilder.Length = 0;
+                tempBuilder.AppendSlice(inReplace);
+                EscapeCurlyBraces(tempBuilder);
+                ReplaceConsts(tempBuilder, m_MacroFormatReplacements);
+                definition.Replace = tempBuilder.Flush();
 
                 definition.TotalArgumentCount = m_MacroFormatReplacements.Count;
                 m_MacroFormatReplacements.Clear();
@@ -810,6 +813,11 @@ namespace Leaf.Compiler
         static private string EscapeCurlyBraces(string inMacroReplacement)
         {
             return inMacroReplacement.Replace("{", "{{").Replace("}", "}}");
+        }
+
+        static private void EscapeCurlyBraces(StringBuilder inMacroReplacement)
+        {
+            inMacroReplacement.Replace("{", "{{").Replace("}", "}}");
         }
 
         #endregion // Preprocessor
@@ -2079,7 +2087,7 @@ namespace Leaf.Compiler
             return string.Format("{0}|{1}:{2}", inFilePosition.FileName, inNodeId, inFilePosition.LineNumber + inLineOffset);
         }
 
-        static public void ReplaceConsts(StringBuilder ioStringBuilder, Dictionary<StringHash32, string> inConsts, ref StringSlice ioLine)
+        static public void ReplaceConsts(StringBuilder ioStringBuilder, Dictionary<StringHash32, string> inConsts)
         {
             if (inConsts == null || inConsts.Count == 0)
             {
@@ -2087,12 +2095,12 @@ namespace Leaf.Compiler
             }
 
             int offset = 0;
-            if (ioLine.StartsWith('$'))
+            if (ioLine[0] == '$')
             {
                 offset = 1;
             }
 
-            int potentialTokenIdx = ioLine.IndexOf('$', offset);
+            int potentialTokenIdx = ioLine.IndexOf('$', offset, ioLine.Length - offset);
             if (potentialTokenIdx < 0)
             {
                 return;
@@ -2212,7 +2220,7 @@ namespace Leaf.Compiler
         // Dumps module disassembly when module compilation is completed
         Dump_Disassembly = 0x80,
 
-        Default_Development = Debug | Validate_LoadStore | Validate_NodeRef | Validate_MethodInvocation | Generate_NoOpBoundary,
+        Default_Development = Debug | Validate_NodeRef | Validate_MethodInvocation | Generate_NoOpBoundary,
         Default_Release = 0
     }
 }

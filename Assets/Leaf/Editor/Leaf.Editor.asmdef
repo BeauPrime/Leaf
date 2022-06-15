@@ -3,6 +3,7 @@
     "references": [
         "BeauUtil",
         "BeauUtil.Editor",
+        "BeauUtil.Parse",
         "Leaf"
     ],
     "includePlatforms": [
