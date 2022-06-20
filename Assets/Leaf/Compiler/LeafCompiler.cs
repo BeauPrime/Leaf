@@ -654,7 +654,7 @@ namespace Leaf.Compiler
         /// </summary>
         public void PreprocessLine(StringBuilder ioStringBuilder)
         {
-            ReplaceConsts(ioStringBuilder, m_Consts);
+            ReplaceConsts(ioStringBuilder, m_Consts, true);
         }
 
         private void ExpandMacro(BlockFilePosition inPosition, StringHash32 inMacroId, MacroDefinition inDefinition, StringSlice inArgs)
@@ -787,7 +787,7 @@ namespace Leaf.Compiler
                 tempBuilder.Length = 0;
                 tempBuilder.AppendSlice(inReplace);
                 EscapeCurlyBraces(tempBuilder);
-                ReplaceConsts(tempBuilder, m_MacroFormatReplacements);
+                ReplaceConsts(tempBuilder, m_MacroFormatReplacements, false);
                 definition.Replace = tempBuilder.Flush();
 
                 definition.TotalArgumentCount = m_MacroFormatReplacements.Count;
@@ -2087,68 +2087,50 @@ namespace Leaf.Compiler
             return string.Format("{0}|{1}:{2}", inFilePosition.FileName, inNodeId, inFilePosition.LineNumber + inLineOffset);
         }
 
-        static public void ReplaceConsts(StringBuilder ioStringBuilder, Dictionary<StringHash32, string> inConsts)
+        static public void ReplaceConsts(StringBuilder ioLine, Dictionary<StringHash32, string> inConsts, bool inbSkipFirst)
         {
-            if (inConsts == null || inConsts.Count == 0)
+            if (inConsts == null || inConsts.Count == 0 || ioLine.Length == 0)
             {
                 return;
             }
 
             int offset = 0;
-            if (ioLine[0] == '$')
+            if (inbSkipFirst && ioLine[0] == '$')
             {
                 offset = 1;
             }
 
-            int potentialTokenIdx = ioLine.IndexOf('$', offset, ioLine.Length - offset);
-            if (potentialTokenIdx < 0)
+            char c;
+            for(; offset < ioLine.Length; offset++)
             {
-                return;
-            }
-
-            bool bChanged = false;
-            ioStringBuilder.Length = 0;
-
-            int stringSliceOffset = 0;
-            int tokenEndIdx = -1;
-            while(potentialTokenIdx >= 0)
-            {
-                tokenEndIdx = potentialTokenIdx + 1;
-                while(tokenEndIdx < ioLine.Length)
+                c = ioLine[offset];
+                if (c == '$')
                 {
-                    if (IsTokenEndCharacter(ioLine[tokenEndIdx]))
-                        break;
+                    int start = offset + 1;
+                    int end = start;
+                    while(end < ioLine.Length)
+                    {
+                        if (IsTokenEndCharacter(ioLine[end]))
+                            break;
 
-                    tokenEndIdx++;
+                        end++;
+                    }
+
+                    StringBuilderSlice constId = new StringBuilderSlice(ioLine, start, end - start);
+                    StringHash32 constHash = constId.Hash32();
+
+                    string constValue;
+                    if (inConsts.TryGetValue(constHash, out constValue))
+                    {
+                        ioLine.Remove(offset, constId.Length + 1);
+                        ioLine.Insert(offset, constValue);
+                        offset--;
+                    }
+                    else
+                    {
+                        offset = end - 1;
+                    }
                 }
-
-                StringSlice constId = ioLine.Substring(potentialTokenIdx + 1, tokenEndIdx - 1 - potentialTokenIdx);
-                StringHash32 constHash = constId;
-
-                string constValue;
-                if (inConsts.TryGetValue(constHash, out constValue))
-                {
-                    StringSlice contentSlice = ioLine.Substring(stringSliceOffset, potentialTokenIdx - stringSliceOffset);
-                    ioStringBuilder.AppendSlice(contentSlice);
-                    ioStringBuilder.Append(constValue);
-                    stringSliceOffset = tokenEndIdx;
-                    bChanged = true;
-                }
-
-                potentialTokenIdx = ioLine.IndexOf('$', tokenEndIdx);
-            }
-
-            if (bChanged)
-            {
-                if (stringSliceOffset < ioLine.Length)
-                {
-                    ioStringBuilder.AppendSlice(ioLine.Substring(stringSliceOffset));
-                }
-                ioLine = ioStringBuilder.ToString();
-            }
-            else
-            {
-                ioStringBuilder.Length = 0;
             }
         }
 

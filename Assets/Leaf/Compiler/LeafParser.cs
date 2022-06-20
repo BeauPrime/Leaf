@@ -110,7 +110,7 @@ namespace Leaf.Compiler
 
         public override void ProcessLine(IBlockParserUtil inUtil, TPackage inPackage, TNode inBlock, StringBuilder ioLine)
         {
-            inPackage.m_Compiler.PreprocessLine(inUtil.TempBuilder, ioLine);
+            inPackage.m_Compiler.PreprocessLine(ioLine);
         }
 
         #endregion // Package

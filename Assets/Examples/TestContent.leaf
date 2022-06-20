@@ -1,3 +1,6 @@
+#const hiddenThird = $question
+#const question = Who is this for?
+
 :: Start
 {@lou} Yep, this is test content.
 {@lou} Just test content.
@@ -6,7 +9,7 @@
 $call Wait(1)
 	Some other content?\
 	It might be extended to two lines.\
-	\
+	$hiddenThird\
 	Or four? With line break support???
 {@me}	Wow. I'm impressed.
 $set someVarSet = true

@@ -7,6 +7,7 @@ using UnityEngine;
 using BeauUtil.Variants;
 using BeauRoutine;
 using BeauUtil.Debugger;
+using System.Collections;
 
 namespace Leaf.Examples
 {
@@ -24,6 +25,13 @@ namespace Leaf.Examples
 
         private void Awake()
         {
+        }
+
+        private IEnumerator Start()
+        {
+            yield return null;
+            yield return null;
+
             m_Manager = new DefaultLeafManager<LeafNode>(this, null, null);
             m_Manager.ConfigureDisplay(DialogBox, DialogBox);
 
@@ -34,7 +42,7 @@ namespace Leaf.Examples
             if (!package.TryGetNode("Start", out startNode))
             {
                 Debug.LogError("[LeafExample] File does not contain a node named 'Start'");
-                return;
+                yield break;
             }
 
             LeafNode anotherNode;
@@ -61,7 +69,7 @@ namespace Leaf.Examples
 
             public override LeafCompilerFlags CompilerFlags
             {
-                get { return LeafCompilerFlags.Default_Development | LeafCompilerFlags.Dump_Stats | LeafCompilerFlags.Dump_Disassembly; }
+                get { return LeafCompilerFlags.Default_Release; }
             }
 
             public override LeafNodePackage<LeafNode> CreatePackage(string inFileName)
