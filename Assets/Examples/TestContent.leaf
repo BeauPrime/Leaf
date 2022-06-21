@@ -1,11 +1,24 @@
 #const hiddenThird = $question
 #const question = Who is this for?
 
+#macro SeriesOfLines() \
+    This is one line \\\
+    This is another line \\\
+    Whose line is this anyways? \
+    $InnerMacro(Vacuum) \
+    Who is in charge here? You? \
+    Haha, what a laughable concept.
+
+#macro InnerMacro(thing) \
+    $thing is such a great tool! \\\
+    It makes my life easier!
+
 :: Start
 {@lou} Yep, this is test content.
 {@lou} Just test content.
 {@me} Is it{wait 0.2} interesting?
 {@lou} Probably not.
+$SeriesOfLines()
 $call Wait(1)
 	Some other content?\
 	It might be extended to two lines.\

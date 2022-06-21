@@ -25,9 +25,10 @@ namespace Leaf.Examples
 
         private void Awake()
         {
+            Routine.Start(this, StartRoutine());
         }
 
-        private IEnumerator Start()
+        private IEnumerator StartRoutine()
         {
             yield return null;
             yield return null;
@@ -35,9 +36,14 @@ namespace Leaf.Examples
             m_Manager = new DefaultLeafManager<LeafNode>(this, null, null);
             m_Manager.ConfigureDisplay(DialogBox, DialogBox);
 
-            BuildTagParser();
+            m_Manager.MethodCache.LoadStatic();
+            yield return null;
 
-            var package = LeafAsset.Compile(File, new Parser());
+            BuildTagParser();
+            yield return null;
+
+            var package = LeafAsset.CompileAsync(File, new Parser(), out IEnumerator wait);
+            yield return wait;
             LeafNode startNode;
             if (!package.TryGetNode("Start", out startNode))
             {

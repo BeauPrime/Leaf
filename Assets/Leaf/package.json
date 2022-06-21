@@ -10,7 +10,7 @@
     "url": "http://beauprime.com"
   },
   "dependencies": {
-    "com.beauprime.beauutil": "0.7.3",
+    "com.beauprime.beauutil": "0.7.4",
     "com.beauprime.beauroutine": "0.11.1"
   },
   "license": "MIT"
