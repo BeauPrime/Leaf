@@ -470,7 +470,7 @@ namespace Leaf.Runtime
                                 Registers.B0_Variant = Thread.PopValue();
                                 Registers.B2_Variant = Thread.PopValue();
                                 Registers.B3_Variant = Registers.B2_Variant != Registers.B0_Variant;
-                                Thread.PushValue(Registers.B2_Variant);
+                                Thread.PushValue(Registers.B3_Variant);
                                 break;
                             }
 
