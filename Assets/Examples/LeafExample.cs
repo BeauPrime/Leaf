@@ -54,8 +54,10 @@ namespace Leaf.Examples
             LeafNode anotherNode;
             package.TryGetNode("MoveLoop", out anotherNode);
 
-            m_Manager.Run(startNode, null);
+            var startHandle = m_Manager.Run(startNode, null, null, null, false);
             m_Manager.Run(anotherNode, Actor);
+
+            startHandle.GetThread().Interrupt(InterruptRoutine());
         }
         
         private void BuildTagParser()
@@ -87,6 +89,13 @@ namespace Leaf.Examples
             {
                 return new LeafNode(inFullId, inPackage);
             }
+        }
+
+        private IEnumerator InterruptRoutine()
+        {
+            yield return null;
+            yield return null;
+            Debug.Log("interrupt successfully executed");
         }
 
         [LeafMember("DumpThreadState")]

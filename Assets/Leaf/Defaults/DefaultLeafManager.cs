@@ -104,7 +104,7 @@ namespace Leaf.Defaults
 
         #region Routines
 
-        public virtual LeafThreadHandle Run(TNode inNode, ILeafActor inActor = null, VariantTable inLocals = null, string inName = null)
+        public virtual LeafThreadHandle Run(TNode inNode, ILeafActor inActor = null, VariantTable inLocals = null, string inName = null, bool inbImmediateTick = true)
         {
             if (inNode == null)
             {
@@ -115,7 +115,7 @@ namespace Leaf.Defaults
             LeafThreadHandle handle = threadState.Setup(inName, inActor, inLocals);
             threadState.AttachRoutine(Routine.Start(m_RoutineHost, LeafRuntime.Execute(threadState, inNode)));
 
-            if (m_RoutineHost.isActiveAndEnabled)
+            if (inbImmediateTick && m_RoutineHost.isActiveAndEnabled)
                 threadState.ForceTick();
 
             return handle;

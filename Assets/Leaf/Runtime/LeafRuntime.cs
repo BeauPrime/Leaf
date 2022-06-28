@@ -49,7 +49,8 @@ namespace Leaf.Runtime
             public const int State_Choose = 1;
             public const int State_Join = 2;
             public const int State_Interrupt = 3;
-            public const int State_Done = -1;
+            public const int State_InterruptYielded = 4;
+            public const int State_Done = -1; 
 
             public readonly ILeafPlugin<TNode> Plugin;
             public readonly LeafThreadState<TNode> Thread;
@@ -67,7 +68,15 @@ namespace Leaf.Runtime
                 State = State_Done;
             }
 
-            public object Current { get { return InterruptWait ?? Wait; } }
+            public object Current
+            {
+                get
+                {
+                    if (State == State_Interrupt)
+                        State = State_InterruptYielded;
+                    return InterruptWait ?? Wait;
+                }
+            }
 
             public void Dispose() { }
 
@@ -87,6 +96,11 @@ namespace Leaf.Runtime
                 LeafChoice choice;
 
                 if (State == State_Interrupt)
+                {
+                    return true;
+                }
+
+                if (State == State_InterruptYielded)
                 {
                     InterruptWait = null;
                     State = State_Default;
