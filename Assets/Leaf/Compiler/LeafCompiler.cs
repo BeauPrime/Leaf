@@ -320,6 +320,7 @@ namespace Leaf.Compiler
         #region Consts
 
         static private readonly char[] ContentTrimChars = new char[] { '\n', ' ', '\t', '\r' };
+        static private readonly char[] MacroStartTrimChars = new char[] { '#', '$' };
         private const int MaxMacroArgs = 16;
 
         #endregion // Consts
@@ -1018,6 +1019,25 @@ namespace Leaf.Compiler
                 return true;
             }
 
+            return TryProcessMacro(inPosition, inLine);
+        }
+
+        /// <summary>
+        /// Returns if any macros are defined.
+        /// </summary>
+        public bool HasMacros()
+        {
+            return m_Macros.Count > 0;
+        }
+
+        /// <summary>
+        /// Attempts to process a macro.
+        /// </summary>
+        public bool TryProcessMacro(BlockFilePosition inPosition, StringSlice inLine)
+        {
+            if (m_Macros.Count == 0)
+                return false;
+            
             StringSlice macroId, macroArgs;
             if (TrySplitMethodArgs(inPosition, inLine, out macroId, out macroArgs))
             {

@@ -8,12 +8,15 @@
  */
 
 using System;
+using System.IO;
 using System.Text;
 using BeauUtil;
 using BeauUtil.Blocks;
+using BeauUtil.Streaming;
 using BeauUtil.Tags;
 using Leaf.Defaults;
 using Leaf.Runtime;
+using UnityEngine;
 
 namespace Leaf.Compiler
 {
@@ -63,7 +66,7 @@ namespace Leaf.Compiler
             FreeCompiler(compiler);
         }
 
-        public override bool TryEvaluatePackage(IBlockParserUtil inUtil, TPackage inPackage, TNode inCurrentBlock, TagData inMetadata)
+        public override bool TryEvaluatePackage(IBlockParserUtil inUtil, TPackage inPackage, TNode inCurrentBlock, TagData inMetadata, StringBuilder inLine)
         {
             StringHash32 id = inMetadata.Id;
             if (id == LeafTokens.Macro)
@@ -77,6 +80,23 @@ namespace Leaf.Compiler
                 TagData constDefinition = TagData.Parse(inMetadata.Data, TagStringParser.CurlyBraceDelimiters);
                 inPackage.m_Compiler.DefineConst(constDefinition.Id, constDefinition.Data);
                 return true;
+            }
+
+            if (id == LeafTokens.Include)
+            {
+                StringSlice includePath = inMetadata.Data;
+                CharStreamParams stream;
+                if (!TryOpenStream(includePath, out stream))
+                {
+                    throw new SyntaxException(inUtil.Position, "Could not open a stream for the include path '{0}'", includePath.ToString());
+                }
+                inUtil.InsertStream(stream, includePath.ToString());
+                return true;
+            }
+
+            if (inPackage.m_Compiler.HasMacros() && inLine.IndexOf('(') > 0)
+            {
+                return inPackage.m_Compiler.TryProcessMacro(inUtil.Position, inLine.ToString());
             }
 
             return false;
@@ -203,6 +223,34 @@ namespace Leaf.Compiler
         /// Creates a node for the given id and package.
         /// </summary>
         protected abstract TNode CreateNode(string inFullId, StringSlice inExtraData, TPackage inPackage);
+
+        /// <summary>
+        /// Attempts to open a stream for an include file.
+        /// </summary>
+        protected virtual bool TryOpenStream(StringSlice inPath, out CharStreamParams outStreamParams)
+        {
+            StringSlice path = inPath.Trim(IncludeTrim);
+            if (path.IsEmpty)
+            {
+                outStreamParams = default;
+                return false;
+            }
+
+            string resourcesPath = path.ToString();
+            resourcesPath = Path.Combine(Path.GetDirectoryName(resourcesPath), Path.GetFileNameWithoutExtension(resourcesPath));
+
+            LeafAsset asset = Resources.Load<LeafAsset>(resourcesPath);
+            if (asset == null)
+            {
+                outStreamParams = default;
+                return false;
+            }
+
+            outStreamParams = CharStreamParams.FromBytes(asset.Bytes(), asset.name);
+            return true;
+        }
+
+        static private readonly char[] IncludeTrim = new char[] { '\'', '"' };
 
         #endregion // Abstract
     }

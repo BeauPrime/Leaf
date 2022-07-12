@@ -31,6 +31,7 @@ namespace Leaf.Compiler
         static public readonly StringHash32 Fork = "fork";
         static public readonly StringHash32 Goto = "goto";
         static public readonly StringHash32 If = "if";
+        static public readonly StringHash32 Include = "include";
         static public readonly StringHash32 Join = "join";
         static public readonly StringHash32 Loop = "loop";
         static public readonly StringHash32 Return = "return";

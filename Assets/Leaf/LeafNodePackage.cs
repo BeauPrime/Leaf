@@ -85,17 +85,6 @@ namespace Leaf
         }
 
         #endregion // IDataBlockPackage
-
-        #region Internal
-
-        // TODO: Finish implementing consts/macros system
-        // [BlockMeta("const")]
-        // private void CreateLeafCompilerConst(StringSlice inConstData)
-        // {
-        //     // m_Compiler
-        // }
-
-        #endregion // Internal
     }
 
     public class LeafNodePackage<TNode> : LeafNodePackage, IDataBlockPackage<TNode>

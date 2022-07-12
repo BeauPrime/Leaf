@@ -77,7 +77,7 @@ namespace Leaf.Examples
 
             public override LeafCompilerFlags CompilerFlags
             {
-                get { return LeafCompilerFlags.Default_Release; }
+                get { return LeafCompilerFlags.Default_Development | LeafCompilerFlags.Dump_Disassembly; }
             }
 
             public override LeafNodePackage<LeafNode> CreatePackage(string inFileName)
