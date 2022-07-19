@@ -21,5 +21,11 @@ namespace Leaf.Examples
         {
             return inActor.transform.MoveTo(inActor.transform.localPosition + new Vector3(inX, inY, inZ), inDuration, Axis.XYZ, Space.Self).Ease(inCurve);
         }
+
+        [LeafMember("PositionX")]
+        static private float GetPosition([BindActor] LeafExampleActor inActor)
+        {
+            return inActor.transform.localPosition.x;
+        }
     }
 }

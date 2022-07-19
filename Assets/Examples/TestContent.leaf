@@ -31,7 +31,9 @@ $call Shift(0, 1, 0, 0.5, Smooth)
 $call Shift(-1, 0, 0, 0.5, Smooth)
 $call Shift(0, -1, 0, 0.5, Smooth)
 $if someVarSet
-	$call Shift(0, -1, 0, 0.5, Smooth)
+    $while someVarSet, PositionX() > -15, someVarSet
+	    $call Shift(0, -1, 0, 0.5, Smooth)
+    $endwhile
 $endif
 
 $loop
