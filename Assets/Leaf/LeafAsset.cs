@@ -58,7 +58,7 @@ namespace Leaf
             where TNode : LeafNode
             where TPackage : LeafNodePackage<TNode>
         {
-            return BlockParser.Parse(CharStreamParams.FromBytes(inAsset.m_Bytes, inAsset.name), BlockParsingRules.Default, inParser);
+            return BlockParser.Parse(CharStreamParams.FromBytes(inAsset.m_Bytes, inAsset, inAsset.name), BlockParsingRules.Default, inParser);
         }
 
         /// <summary>
@@ -68,7 +68,7 @@ namespace Leaf
             where TNode : LeafNode
             where TPackage : LeafNodePackage<TNode>
         {
-            return BlockParser.ParseAsync(CharStreamParams.FromBytes(inAsset.m_Bytes, inAsset.name), BlockParsingRules.Default, inParser, out outLoader);
+            return BlockParser.ParseAsync(CharStreamParams.FromBytes(inAsset.m_Bytes, inAsset, inAsset.name), BlockParsingRules.Default, inParser, out outLoader);
         }
 
         /// <summary>
@@ -78,7 +78,7 @@ namespace Leaf
             where TNode : LeafNode
             where TPackage : LeafNodePackage<TNode>
         {
-            return BlockParser.Parse(CharStreamParams.FromBytes(inAsset.m_Bytes, inAsset.name), inParsingRules, inParser);
+            return BlockParser.Parse(CharStreamParams.FromBytes(inAsset.m_Bytes, inAsset, inAsset.name), inParsingRules, inParser);
         }
 
         /// <summary>
@@ -88,7 +88,7 @@ namespace Leaf
             where TNode : LeafNode
             where TPackage : LeafNodePackage<TNode>
         {
-            return BlockParser.ParseAsync(CharStreamParams.FromBytes(inAsset.m_Bytes, inAsset.name), inParsingRules, inParser, out outLoader);
+            return BlockParser.ParseAsync(CharStreamParams.FromBytes(inAsset.m_Bytes, inAsset, inAsset.name), inParsingRules, inParser, out outLoader);
         }
     }
 }

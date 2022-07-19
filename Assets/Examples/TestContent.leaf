@@ -14,6 +14,8 @@ $call Wait(1)
 {@me}	Wow. I'm impressed.
 $set someVarSet = true
 
+#VaradicTest(This is one line, This is another line, This should be a comma, separated, third line)
+
 // a test of while loops
 
 $set local:someVar = 0

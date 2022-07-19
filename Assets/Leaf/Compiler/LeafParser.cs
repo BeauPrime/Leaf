@@ -94,9 +94,9 @@ namespace Leaf.Compiler
                 return true;
             }
 
-            if (inPackage.m_Compiler.HasMacros() && inLine.IndexOf('(') > 0)
+            if (inPackage.m_Compiler.HasMacros() && inLine.IndexOf('(') > 0 && inLine.IndexOf(')') > 0)
             {
-                return inPackage.m_Compiler.TryProcessMacro(inUtil.Position, inLine.ToString());
+                return inPackage.m_Compiler.TryProcessMacro(inUtil.Position, inLine.ToString(1, inLine.Length - 1));
             }
 
             return false;
@@ -246,7 +246,7 @@ namespace Leaf.Compiler
                 return false;
             }
 
-            outStreamParams = CharStreamParams.FromBytes(asset.Bytes(), asset.name);
+            outStreamParams = CharStreamParams.FromBytes(asset.Bytes(), asset, asset.name);
             return true;
         }
 

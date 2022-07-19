@@ -12,3 +12,8 @@
 #macro InnerMacro(thing) \
     $thing is such a great tool! \\\
     It makes my life easier!
+
+#macro VaradicTest(firstLine, secondLine, ...rest) \
+    $firstLine \
+    $secondLine \
+    $rest

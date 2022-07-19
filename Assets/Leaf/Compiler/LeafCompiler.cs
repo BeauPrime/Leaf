@@ -310,6 +310,7 @@ namespace Leaf.Compiler
         {
             public int RequiredArgumentCount;
             public int TotalArgumentCount;
+            public bool HasVaradicArgs;
             public string Replace;
         }
 
@@ -333,6 +334,7 @@ namespace Leaf.Compiler
         private Func<string> m_RetrieveRoot;
         private readonly Dictionary<StringHash32, CommandHandler> m_Handlers = new Dictionary<StringHash32, CommandHandler>(23);
         private readonly StringSlice.ISplitter m_ArgsListSplitter = new StringUtils.ArgsList.Splitter(false);
+        private readonly StringSlice.ISplitter m_MacroArgsListSplitter = new StringUtils.ArgsList.Splitter(',', false, false);
         private IMethodCache m_MethodCache;
         private IBlockParserUtil m_BlockParserState;
 
@@ -668,31 +670,32 @@ namespace Leaf.Compiler
                 return;
             }
 
-            if (inDefinition.TotalArgumentCount == 1)
+            Array.Clear(m_MacroReplaceArgs, 0, MaxMacroArgs);
+            int argCount = 0;
+            StringSliceOptions options;
+            if (inDefinition.HasVaradicArgs)
             {
-                text = string.Format(text, inArgs);
-                m_BlockParserState.InsertText(text);
+                options = new StringSliceOptions(StringSplitOptions.None, inDefinition.TotalArgumentCount);
             }
             else
             {
-                Array.Clear(m_MacroReplaceArgs, 0, MaxMacroArgs);
-                int argCount = 0;
-                foreach(var slice in inArgs.EnumeratedSplit(m_ArgsListSplitter, StringSplitOptions.None))
-                {
-                    m_MacroReplaceArgs[argCount++] = slice.ToString();
-                }
-                for(int i = argCount; i < inDefinition.TotalArgumentCount; i++)
-                {
-                    m_MacroReplaceArgs[i] = string.Empty;
-                }
-                if (argCount < inDefinition.RequiredArgumentCount || argCount > inDefinition.TotalArgumentCount)
-                {
-                    throw new SyntaxException(inPosition, "Macro '{0}' was expecting between {1} and {2} arguments but {2} provided ('{3}')", inMacroId, inDefinition.RequiredArgumentCount, inDefinition.TotalArgumentCount, argCount, inArgs);
-                }
-                text = string.Format(text, m_MacroReplaceArgs);
-                m_BlockParserState.InsertText(text);
-                Array.Clear(m_MacroReplaceArgs, 0, argCount);
+                options = new StringSliceOptions(StringSplitOptions.None);
             }
+            foreach(var slice in inArgs.EnumeratedSplit(m_MacroArgsListSplitter, options))
+            {
+                m_MacroReplaceArgs[argCount++] = slice.ToString();
+            }
+            for(int i = argCount; i < inDefinition.TotalArgumentCount; i++)
+            {
+                m_MacroReplaceArgs[i] = string.Empty;
+            }
+            if (argCount < inDefinition.RequiredArgumentCount || argCount > inDefinition.TotalArgumentCount)
+            {
+                throw new SyntaxException(inPosition, "Macro '{0}' was expecting between {1} and {2} arguments but {2} provided ('{3}')", inMacroId, inDefinition.RequiredArgumentCount, inDefinition.TotalArgumentCount, argCount, inArgs);
+            }
+            text = string.Format(text, m_MacroReplaceArgs);
+            m_BlockParserState.InsertText(text);
+            Array.Clear(m_MacroReplaceArgs, 0, argCount);
         }
 
         /// <summary>
@@ -712,7 +715,7 @@ namespace Leaf.Compiler
                 throw new SyntaxException(m_BlockParserState.Position, "'{0}' is a reserved keyword and cannot be used for consts", id);
             }
 
-            m_Consts.Add(inConst, inValue.ToString());
+            m_Consts[inConst] = inValue.ToString();
         }
 
         /// <summary>
@@ -748,15 +751,28 @@ namespace Leaf.Compiler
             else
             {
                 bool startOptional = false;
+                bool hasVaradic = false;
                 m_MacroFormatReplacements.Clear();
                 foreach(var varIdString in inDefinition.EnumeratedSplit(m_ArgsListSplitter, StringSplitOptions.None))
                 {
                     StringSlice varId = varIdString;
+                    if (hasVaradic)
+                    {
+                        throw new SyntaxException(m_BlockParserState.Position, "Macro definition '{0}' has arguments after varadic arg '{1}'", id, inDefinition);
+                    }
+
                     bool isOptional = varId.EndsWith("?");
                     if (isOptional)
                     {
                         varId = varId.Substring(0, varId.Length - 1);
                         startOptional = true;
+                    }
+                    else if (varId.StartsWith("..."))
+                    {
+                        isOptional = true;
+                        startOptional = true;
+                        hasVaradic = true;
+                        varId = varId.Substring(3).TrimStart();
                     }
 
                     if (!isOptional && startOptional)
@@ -782,6 +798,7 @@ namespace Leaf.Compiler
                         definition.RequiredArgumentCount++;
                     }
                     definition.TotalArgumentCount++;
+                    definition.HasVaradicArgs = hasVaradic;
                 }
 
                 StringBuilder tempBuilder = m_BlockParserState.TempBuilder;
