@@ -563,6 +563,12 @@ namespace Leaf
             }
             else
             {
+                if (ActorType.IsAssignableFrom(inType))
+                {
+                    inContext.Plugin.TryLookupObject(inData.Hash32(), inContext.Thread, out outObject);
+                    return true;
+                }
+
                 return StringParser.TryConvertTo(inData, inType, out outObject);
             }
         }
