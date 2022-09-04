@@ -27,10 +27,10 @@ namespace Leaf.Compiler
     {
         #region Types
 
-        public class Report
+        public struct Report
         {
-            public string[] Warnings;
-            public string[] Errors;
+            public LeafCompilerErrorMask WarningMask;
+            public LeafCompilerErrorMask ErrorMask;
         }
 
         private class ConditionalBlockLinker
@@ -488,12 +488,14 @@ namespace Leaf.Compiler
         /// <summary>
         /// Flushes the accumulated content and expressions to the given package.
         /// </summary>
-        public void FinishModule(LeafNodePackage ioPackage)
+        public Report FinishModule(LeafNodePackage ioPackage)
         {
             ioPackage.SetLines(m_PackageLines);
             ioPackage.m_Instructions.InstructionStream = m_InstructionStream.ToArray();
             ioPackage.m_Instructions.StringTable = m_StringTable.ToArray();
             ioPackage.m_Instructions.ExpressionTable = m_ExpressionTable.ToArray();
+
+            Report report = default;
             
             if (m_Verbose)
             {
@@ -501,9 +503,6 @@ namespace Leaf.Compiler
 
                 m_BlockParserState.TempBuilder.Append("[LeafCompiler] Finished compiling module '")
                     .Append(ioPackage.Name()).Append('\'');
-
-                bool hasErrors = false;
-                bool hasWarnings = false;
 
                 if (HasFlag(m_Flags, LeafCompilerFlags.Dump_Stats))
                 {
@@ -524,7 +523,10 @@ namespace Leaf.Compiler
                         m_BlockParserState.TempBuilder.Append("\nWARN: Variable ").Append(key.ToDebugString()).Append(" is read but not written to");
                     }
 
-                    hasWarnings |= unused.Count > 0;
+                    if (unused.Count > 0)
+                    {
+                        report.WarningMask |= LeafCompilerErrorMask.ReadOnlyVariable;
+                    }
 
                     unused.Clear();
                     unused.UnionWith(m_WrittenVariables);
@@ -534,23 +536,45 @@ namespace Leaf.Compiler
                         m_BlockParserState.TempBuilder.Append("\nWARN: Variable ").Append(key.ToDebugString()).Append(" is written to but not read");
                     }
 
-                    hasWarnings |= unused.Count > 0;
+                    if (unused.Count > 0)
+                    {
+                        report.WarningMask |= LeafCompilerErrorMask.WriteOnlyVariable;
+                    }
                 }
 
                 if (HasFlag(m_Flags, LeafCompilerFlags.Validate_MethodInvocation))
                 {
-                    foreach(var methodId in m_UnrecognizedMethods)
+                    if (m_UnrecognizedMethods.Count > 0)
                     {
-                        m_BlockParserState.TempBuilder.Append("\nERROR: Method ").Append(methodId.ToDebugString()).Append(" is unrecognized");
+                        foreach(var methodId in m_UnrecognizedMethods)
+                        {
+                            m_BlockParserState.TempBuilder.Append("\nERROR: Method ").Append(methodId.ToDebugString()).Append(" is unrecognized");
+                        }
+
+                        report.ErrorMask |= LeafCompilerErrorMask.StaticMethodUnrecognized;
                     }
 
-                    foreach(var methodId in m_UnrecognizedInstanceMethods)
+                    if (m_UnrecognizedInstanceMethods.Count > 0)
                     {
-                        m_BlockParserState.TempBuilder.Append("\nWARN: Instance Method ").Append(methodId.ToDebugString()).Append(" is unrecognized");
-                    }
+                        if (HasFlag(m_Flags, LeafCompilerFlags.Validate_InstanceMethodStrict))
+                        {
+                            foreach(var methodId in m_UnrecognizedInstanceMethods)
+                            {
+                                m_BlockParserState.TempBuilder.Append("\nERROR: Instance Method ").Append(methodId.ToDebugString()).Append(" is unrecognized");
+                            }
 
-                    hasErrors |= m_UnrecognizedMethods.Count > 0;
-                    hasWarnings |= m_UnrecognizedInstanceMethods.Count > 0;
+                            report.ErrorMask |= LeafCompilerErrorMask.InstanceMethodUnrecognized;
+                        }
+                        else
+                        {
+                            foreach(var methodId in m_UnrecognizedInstanceMethods)
+                            {
+                                m_BlockParserState.TempBuilder.Append("\nWARN: Instance Method ").Append(methodId.ToDebugString()).Append(" is unrecognized");
+                            }
+
+                            report.WarningMask |= LeafCompilerErrorMask.InstanceMethodUnrecognized;
+                        }
+                    }
                 }
 
                 if (HasFlag(m_Flags, LeafCompilerFlags.Validate_NodeRef))
@@ -558,23 +582,29 @@ namespace Leaf.Compiler
                     HashSet<StringHash32> unrecognizedNodeIds = new HashSet<StringHash32>(m_ReferencedNodeIds);
                     unrecognizedNodeIds.ExceptWith(m_ParsedNodeIds);
 
-                    foreach(var nodeId in unrecognizedNodeIds)
+                    if (unrecognizedNodeIds.Count > 0)
                     {
-                        m_BlockParserState.TempBuilder.Append("\nWARN: Node Id '").Append(nodeId.ToDebugString()).Append("' is unrecognized");
-                    }
+                        foreach(var nodeId in unrecognizedNodeIds)
+                        {
+                            m_BlockParserState.TempBuilder.Append("\nWARN: Node Id '").Append(nodeId.ToDebugString()).Append("' is unrecognized");
+                        }
 
-                    hasWarnings |= unrecognizedNodeIds.Count > 0;
+                        report.WarningMask |= LeafCompilerErrorMask.NodeUnrecognized;
+                    }
 
                     unrecognizedNodeIds.Clear();
                     unrecognizedNodeIds.UnionWith(m_ReferencedLocalNodeIds);
                     unrecognizedNodeIds.ExceptWith(m_ParsedNodeIds);
 
-                    foreach(var nodeId in unrecognizedNodeIds)
+                    if (unrecognizedNodeIds.Count > 0)
                     {
-                        m_BlockParserState.TempBuilder.Append("\nERROR: Local Node Id '").Append(nodeId.ToDebugString()).Append("' is unrecognized");
-                    }
+                        foreach(var nodeId in unrecognizedNodeIds)
+                        {
+                            m_BlockParserState.TempBuilder.Append("\nERROR: Local Node Id '").Append(nodeId.ToDebugString()).Append("' is unrecognized");
+                        }
 
-                    hasErrors |= unrecognizedNodeIds.Count > 0;
+                        report.ErrorMask |= LeafCompilerErrorMask.LocalNodeUnrecognized;
+                    }
                 }
 
                 if (HasFlag(m_Flags, LeafCompilerFlags.Dump_Disassembly))
@@ -583,11 +613,11 @@ namespace Leaf.Compiler
                     LeafInstruction.Disassemble(ioPackage.m_Instructions, m_BlockParserState.TempBuilder);
                 }
 
-                if (hasErrors)
+                if (report.ErrorMask != 0)
                 {
                     UnityEngine.Debug.LogErrorFormat(m_BlockParserState.TempBuilder.Flush());
                 }
-                else if (hasWarnings)
+                else if (report.WarningMask != 0)
                 {
                     UnityEngine.Debug.LogWarningFormat(m_BlockParserState.TempBuilder.Flush());
                 }
@@ -608,6 +638,8 @@ namespace Leaf.Compiler
             m_RetrieveRoot = null;
             m_MethodCache = null;
             m_CurrentPackage = null;
+
+            return report;
         }
 
         /// <summary>
@@ -2238,8 +2270,40 @@ namespace Leaf.Compiler
 
         // Dumps module disassembly when module compilation is completed
         Dump_Disassembly = 0x80,
+        
+        // Treats missing instance methods as errors
+        Validate_InstanceMethodStrict = 0x100,
 
         Default_Development = Debug | Validate_NodeRef | Validate_MethodInvocation | Generate_NoOpBoundary,
+        Default_Strict = Debug | Validate_NodeRef | Validate_MethodInvocation | Validate_InstanceMethodStrict | Validate_LoadStore | Generate_NoOpBoundary,
         Default_Release = 0
+    }
+
+    /// <summary>
+    /// Mask of all error/warning types.
+    /// </summary>
+    [Flags]
+    public enum LeafCompilerErrorMask : ushort {
+
+        // Variable is read but not written
+        ReadOnlyVariable = 0x01,
+
+        // Variable is written but not read
+        WriteOnlyVariable = 0x02,
+        
+        // Cannot recognize static method
+        StaticMethodUnrecognized = 0x04,
+
+        // Cannot recognize instance method
+        InstanceMethodUnrecognized = 0x08,
+
+        // Cannot recognize node id
+        NodeUnrecognized = 0x10,
+
+        // Cannot recognize local node id
+        LocalNodeUnrecognized = 0x20,
+
+        // Block parser error
+        BlockParserError = 0x40,
     }
 }

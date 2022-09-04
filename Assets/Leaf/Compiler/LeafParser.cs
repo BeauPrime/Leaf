@@ -60,8 +60,13 @@ namespace Leaf.Compiler
         public override void OnEnd(IBlockParserUtil inUtil, TPackage inPackage, bool inbError)
         {
             var compiler = inPackage.m_Compiler;
-            compiler.FinishModule(inPackage);
+            inPackage.m_ErrorState = compiler.FinishModule(inPackage);
             inPackage.m_Compiler = null;
+
+            if (inbError)
+			{
+                inPackage.m_ErrorState.ErrorMask |= LeafCompilerErrorMask.BlockParserError;
+            }
 
             FreeCompiler(compiler);
         }

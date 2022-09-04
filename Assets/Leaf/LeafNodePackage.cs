@@ -29,6 +29,7 @@ namespace Leaf
         protected internal LeafInstructionBlock m_Instructions;
         
         internal LeafCompiler m_Compiler;
+        internal LeafCompiler.Report m_ErrorState;
 
         internal void SetLines(Dictionary<StringHash32, string> inLineTable)
         {
@@ -67,6 +68,14 @@ namespace Leaf
         {
             m_LineTable.Clear();
             m_Instructions = default(LeafInstructionBlock);
+        }
+
+        /// <summary>
+        /// Returns the compilation error state.
+        /// </summary>
+        public LeafCompiler.Report ErrorState()
+        {
+            return m_ErrorState;
         }
 
         #region IDataBlockPackage
