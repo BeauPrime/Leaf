@@ -1129,6 +1129,7 @@ namespace Leaf.Compiler
             if (!expression.IsEmpty)
             {
                 WriteExpressionLogical(inPosition, expression);
+                WriteOp(LeafOpcode.JumpIfFalse);
                 skip = new JumpHelper(StreamLength);
                 WriteUInt16(0);
             }
