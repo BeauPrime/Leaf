@@ -536,7 +536,7 @@ namespace Leaf
         /// <summary>
         /// Attempts to handles inline argument syntax.
         /// </summary>
-        static public bool TryParseArgument(LeafEvalContext inContext, StringSlice inData, Type inType, out object outObject)
+        static public bool TryParseArgument(LeafEvalContext inContext, StringSlice inData, Type inType, out NonBoxedValue outObject)
         {
             if (inData.Length >= 2 && inData[0] == '$')
             {
@@ -555,7 +555,9 @@ namespace Leaf
 
                 if (ActorType.IsAssignableFrom(inType))
                 {
-                    inContext.Plugin.TryLookupObject(returnVal.AsStringHash(), inContext.Thread, out outObject);
+                    object actor;
+                    inContext.Plugin.TryLookupObject(returnVal.AsStringHash(), inContext.Thread, out actor);
+                    outObject = new NonBoxedValue(actor);
                     return true;
                 }
 
@@ -565,7 +567,9 @@ namespace Leaf
             {
                 if (ActorType.IsAssignableFrom(inType))
                 {
-                    inContext.Plugin.TryLookupObject(inData.Hash32(), inContext.Thread, out outObject);
+                    object actor;
+                    inContext.Plugin.TryLookupObject(inData.Hash32(), inContext.Thread, out actor);
+                    outObject = new NonBoxedValue(actor);
                     return true;
                 }
 
@@ -578,11 +582,11 @@ namespace Leaf
         /// </summary>
         static public bool TryParseArgument<T>(LeafEvalContext inContext, StringSlice inData, out T outObject)
         {
-            object ret;
+            NonBoxedValue ret;
             bool bSuccess = TryParseArgument(inContext, inData, typeof(T), out ret);
             if (bSuccess)
             {
-                outObject = (T) ret;
+                outObject = (T) ret.AsObject();
                 return true;
             }
 
@@ -643,7 +647,7 @@ namespace Leaf
 
                 case VariantOperand.Mode.Method:
                     {
-                        object rawObj;
+                        NonBoxedValue rawObj;
                         if (!inContext.MethodCache.TryStaticInvoke(operand.MethodCall, inContext, out rawObj))
                         {
                             Log.Error("[LeafUtils] Unable to execute {0} in inline method call '{1}'", operand.MethodCall, inSource);

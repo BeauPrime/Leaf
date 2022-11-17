@@ -891,7 +891,7 @@ namespace Leaf.Runtime
                 throw new InvalidOperationException("ILeafPlugin.MethodCache is not specified for plugin");
             
             bool bSuccess;
-            object result;
+            NonBoxedValue result;
             if (inTarget == null)
             {
                 bSuccess = cache.TryStaticInvoke(inInvocation.Id, inInvocation.Args, inContext, out result);
@@ -914,7 +914,7 @@ namespace Leaf.Runtime
                 }
             }
 
-            return result as IEnumerator;
+            return result.Type == NonBoxedValue.ValueType.Object ? result.AsObject() as IEnumerator : null;
         }
 
         /// <summary>
@@ -927,7 +927,7 @@ namespace Leaf.Runtime
                 throw new InvalidOperationException("ILeafPlugin.MethodCache is not specified for plugin");
             
             bool bSuccess;
-            object result;
+            NonBoxedValue result;
             if (inTarget == null)
             {
                 bSuccess = cache.TryStaticInvoke(inInvocation.Id, inInvocation.Args, inContext, out result);
