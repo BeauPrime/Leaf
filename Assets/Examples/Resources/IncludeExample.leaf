@@ -17,3 +17,6 @@
     $firstLine \
     $secondLine \
     $rest
+
+:: anotherIncludedNode
+{@me}   What is the purpose of this document? 

@@ -89,7 +89,7 @@ namespace Leaf.Compiler
 
             if (id == LeafTokens.Include)
             {
-                StringSlice includePath = inMetadata.Data;
+                StringSlice includePath = inMetadata.Data.Trim(IncludeTrim);
                 CharStreamParams stream;
                 if (!TryOpenStream(includePath, out stream))
                 {
@@ -234,7 +234,7 @@ namespace Leaf.Compiler
         /// </summary>
         protected virtual bool TryOpenStream(StringSlice inPath, out CharStreamParams outStreamParams)
         {
-            StringSlice path = inPath.Trim(IncludeTrim);
+            StringSlice path = inPath;
             if (path.IsEmpty)
             {
                 outStreamParams = default;
