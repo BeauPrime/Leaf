@@ -25,16 +25,17 @@ namespace Leaf
         protected string m_Name;
         [BlockMeta("basePath"), UnityEngine.Scripting.Preserve] protected string m_RootPath = string.Empty;
 
-        protected readonly Dictionary<StringHash32, string> m_LineTable = new Dictionary<StringHash32, string>(32);
+        protected readonly Dictionary<StringHash32, string> m_LineTable = new Dictionary<StringHash32, string>(CompareUtils.DefaultEquals<StringHash32>());
         protected internal LeafInstructionBlock m_Instructions;
-        
+
         internal LeafCompiler m_Compiler;
         internal LeafCompiler.Report m_ErrorState;
 
         internal void SetLines(Dictionary<StringHash32, string> inLineTable)
         {
             m_LineTable.Clear();
-            foreach(var kv in inLineTable)
+            m_LineTable.EnsureCapacity(inLineTable.Count);
+            foreach (var kv in inLineTable)
             {
                 m_LineTable.Add(kv.Key, kv.Value);
             }
@@ -100,7 +101,7 @@ namespace Leaf
         where TNode : LeafNode
     {
         // temp storage
-        protected readonly Dictionary<StringHash32, TNode> m_Nodes = new Dictionary<StringHash32, TNode>(32);
+        protected readonly Dictionary<StringHash32, TNode> m_Nodes = new Dictionary<StringHash32, TNode>(32, CompareUtils.DefaultEquals<StringHash32>());
 
         public LeafNodePackage(string inName)
         {
@@ -122,7 +123,7 @@ namespace Leaf
         }
 
         #endregion // Modifications
-        
+
         #region ILeafModule
 
         /// <summary>

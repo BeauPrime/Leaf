@@ -19,13 +19,5 @@ namespace Leaf.Defaults
         public StringHash32 TargetId;
         public int Priority;
         public VariantComparison[] Conditions;
-
-        public TriggerMode Mode;
-    }
-
-    public enum TriggerMode : byte
-    {
-        Prioritized,
-        Function
     }
 }

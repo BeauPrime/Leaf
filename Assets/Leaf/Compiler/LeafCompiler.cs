@@ -7,8 +7,16 @@
  * Purpose: Compilation environment for LeafNodes.
  */
 
+// define LEAF_USE_OLD_LINECODE_GENERATION to use the old linecode generation method
+// #define LEAF_USE_OLD_LINECODE_GENERATION
+
+#if (UNITY_EDITOR && !IGNORE_UNITY_EDITOR) || DEVELOPMENT_BUILD || DEVELOPMENT
+#define PRESERVE_DEBUG_SYMBOLS
+#endif // (UNITY_EDITOR && !IGNORE_UNITY_EDITOR) || DEVELOPMENT_BUILD
+
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -66,10 +74,10 @@ namespace Leaf.Compiler
             {
                 if (m_Phase != Phase.Unstarted)
                     throw new SyntaxException(inPosition, "If statement in an unexpected location");
-                
+
                 m_Phase = Phase.Started;
                 m_Type = BlockType.If;
-                
+
                 EmitExpressionCheck(inPosition, inExpression, ioCompiler);
             }
 
@@ -81,7 +89,7 @@ namespace Leaf.Compiler
                 if (m_Type != BlockType.If)
                     throw new SyntaxException(inPosition, "elseIf while not in an if block");
 
-                switch(m_Phase)
+                switch (m_Phase)
                 {
                     case Phase.Unstarted:
                         throw new SyntaxException(inPosition, "ElseIf without corresponding initial if statement");
@@ -105,7 +113,7 @@ namespace Leaf.Compiler
                 if (m_Type != BlockType.If)
                     throw new SyntaxException(inPosition, "else while not in an if block");
 
-                switch(m_Phase)
+                switch (m_Phase)
                 {
                     case Phase.Unstarted:
                         throw new SyntaxException(inPosition, "Else without corresponding initial if statement");
@@ -129,7 +137,7 @@ namespace Leaf.Compiler
                 if (m_Type != BlockType.If)
                     throw new SyntaxException(inPosition, "endif while not in an if block");
 
-                switch(m_Phase)
+                switch (m_Phase)
                 {
                     case Phase.Unstarted:
                         throw new SyntaxException(inPosition, "EndIf without corresponding initial if statement");
@@ -152,11 +160,11 @@ namespace Leaf.Compiler
             {
                 if (m_Phase != Phase.Unstarted)
                     throw new SyntaxException(inPosition, "while statement in an unexpected location");
-                
+
                 m_Phase = Phase.Started;
                 m_Type = BlockType.While;
                 m_StartPointer = ioCompiler.StreamLength;
-                
+
                 EmitExpressionCheckBlock(inPosition, inExpression, ioCompiler);
             }
 
@@ -168,7 +176,7 @@ namespace Leaf.Compiler
                 if (m_Type != BlockType.While)
                     throw new SyntaxException(inPosition, "break while not in a while block");
 
-                switch(m_Phase)
+                switch (m_Phase)
                 {
                     case Phase.Unstarted:
                         throw new SyntaxException(inPosition, "Break without corresponding initial while statement");
@@ -185,7 +193,7 @@ namespace Leaf.Compiler
                 if (m_Type != BlockType.While)
                     throw new SyntaxException(inPosition, "continue while not in a while block");
 
-                switch(m_Phase)
+                switch (m_Phase)
                 {
                     case Phase.Unstarted:
                         throw new SyntaxException(inPosition, "Continue without corresponding initial while statement");
@@ -202,7 +210,7 @@ namespace Leaf.Compiler
                 if (m_Type != BlockType.While)
                     throw new SyntaxException(inPosition, "endwhile while not in a while block");
 
-                switch(m_Phase)
+                switch (m_Phase)
                 {
                     case Phase.Unstarted:
                         throw new SyntaxException(inPosition, "EndWhile without corresponding initial while statement");
@@ -226,7 +234,7 @@ namespace Leaf.Compiler
                     m_ConditionalEndPointer = -1;
                 }
 
-                for(int i = m_EndPointers.Count - 1; i >= 0; --i)
+                for (int i = m_EndPointers.Count - 1; i >= 0; --i)
                 {
                     int idx = m_EndPointers[i];
                     short jump = (short) (ioCompiler.StreamLength - (idx + 2));
@@ -332,7 +340,7 @@ namespace Leaf.Compiler
         private bool m_Verbose;
         private LeafCompilerFlags m_Flags;
         private Func<string> m_RetrieveRoot;
-        private readonly Dictionary<StringHash32, CommandHandler> m_Handlers = new Dictionary<StringHash32, CommandHandler>(23);
+        private readonly Dictionary<StringHash32, CommandHandler> m_Handlers = new Dictionary<StringHash32, CommandHandler>(23, CompareUtils.DefaultEquals<StringHash32>());
         private readonly StringSlice.ISplitter m_ArgsListSplitter = new StringUtils.ArgsList.Splitter(false);
         private readonly StringSlice.ISplitter m_MacroArgsListSplitter = new StringUtils.ArgsList.Splitter(',', false, false);
         private IMethodCache m_MethodCache;
@@ -341,7 +349,8 @@ namespace Leaf.Compiler
         // temp resources
 
         private readonly object[] m_MacroReplaceArgs = new object[MaxMacroArgs];
-        private readonly Dictionary<StringHash32, string> m_MacroFormatReplacements = new Dictionary<StringHash32, string>(16);
+        private readonly Dictionary<StringHash32, string> m_MacroFormatReplacements = new Dictionary<StringHash32, string>(16, CompareUtils.DefaultEquals<StringHash32>());
+        private readonly char[] m_TempNoAllocCharBuffer = new char[1024];
 
         private readonly StringBuilder m_ContentBuilder;
 
@@ -351,22 +360,24 @@ namespace Leaf.Compiler
         // package emission
 
         private LeafNodePackage m_CurrentPackage;
-        private readonly Dictionary<StringHash32, string> m_PackageLines = new Dictionary<StringHash32, string>(32);
-        private readonly Dictionary<StringHash32, MacroDefinition> m_Macros = new Dictionary<StringHash32, MacroDefinition>(4);
-        private readonly Dictionary<StringHash32, string> m_Consts = new Dictionary<StringHash32, string>(4);
+        private readonly Dictionary<StringHash32, string> m_PackageLines = new Dictionary<StringHash32, string>(256, CompareUtils.DefaultEquals<StringHash32>());
+        private readonly Dictionary<StringHash32, MacroDefinition> m_Macros = new Dictionary<StringHash32, MacroDefinition>(7, CompareUtils.DefaultEquals<StringHash32>());
+        private readonly Dictionary<StringHash32, string> m_Consts = new Dictionary<StringHash32, string>(7, CompareUtils.DefaultEquals<StringHash32>());
 
-        private readonly RingBuffer<byte> m_InstructionStream = new RingBuffer<byte>(1024, RingBufferMode.Expand);
-        private readonly List<string> m_StringTable = new List<string>(32);
-        private readonly List<LeafExpression> m_ExpressionTable = new List<LeafExpression>(32);
+        private readonly RingBuffer<byte> m_InstructionStream = new RingBuffer<byte>(2048, RingBufferMode.Expand);
+        private readonly List<string> m_StringTable = new List<string>(128);
+        private readonly List<LeafExpression> m_ExpressionTable = new List<LeafExpression>(128);
+        private readonly Dictionary<StringHash32, uint> m_StringTableReuseMap = new Dictionary<StringHash32, uint>(128, CompareUtils.DefaultEquals<StringHash32>());
 
-        private readonly Dictionary<StringHash32, uint> m_StringTableReuseMap = new Dictionary<StringHash32, uint>();
-        private readonly HashSet<TableKeyPair> m_ReadVariables = new HashSet<TableKeyPair>();
-        private readonly HashSet<TableKeyPair> m_WrittenVariables = new HashSet<TableKeyPair>();
-        private readonly HashSet<StringHash32> m_UnrecognizedMethods = new HashSet<StringHash32>();
-        private readonly HashSet<StringHash32> m_UnrecognizedInstanceMethods = new HashSet<StringHash32>();
-        private readonly HashSet<StringHash32> m_ParsedNodeIds = new HashSet<StringHash32>();
-        private readonly HashSet<StringHash32> m_ReferencedNodeIds = new HashSet<StringHash32>();
-        private readonly HashSet<StringHash32> m_ReferencedLocalNodeIds = new HashSet<StringHash32>();
+        // validation
+
+        private readonly HashSet<TableKeyPair> m_ReadVariables = new HashSet<TableKeyPair>(CompareUtils.DefaultEquals<TableKeyPair>());
+        private readonly HashSet<TableKeyPair> m_WrittenVariables = new HashSet<TableKeyPair>(CompareUtils.DefaultEquals<TableKeyPair>());
+        private readonly HashSet<StringHash32> m_UnrecognizedMethods = new HashSet<StringHash32>(CompareUtils.DefaultEquals<StringHash32>());
+        private readonly HashSet<StringHash32> m_UnrecognizedInstanceMethods = new HashSet<StringHash32>(CompareUtils.DefaultEquals<StringHash32>());
+        private readonly HashSet<StringHash32> m_ParsedNodeIds = new HashSet<StringHash32>(CompareUtils.DefaultEquals<StringHash32>());
+        private readonly HashSet<StringHash32> m_ReferencedNodeIds = new HashSet<StringHash32>(CompareUtils.DefaultEquals<StringHash32>());
+        private readonly HashSet<StringHash32> m_ReferencedLocalNodeIds = new HashSet<StringHash32>(CompareUtils.DefaultEquals<StringHash32>());
 
         // current node
 
@@ -382,6 +393,7 @@ namespace Leaf.Compiler
         private uint m_CurrentNodeInstructionOffset;
         private uint m_CurrentNodeInstructionLength;
         private StringHash32 m_CurrentNodeLineCodePrefix;
+        private string m_CurrentNodeLineCodePrefixString;
 
         public LeafCompiler(ILeafCompilerPlugin inPlugin)
         {
@@ -391,9 +403,9 @@ namespace Leaf.Compiler
             m_Plugin = inPlugin;
 
             if (HasFlag(m_Plugin.CompilerFlags, LeafCompilerFlags.Parse_CollapseContent))
-                m_ContentBuilder = new StringBuilder(256);
+                m_ContentBuilder = new StringBuilder(1024);
             else
-                m_ContentBuilder = new StringBuilder(32);
+                m_ContentBuilder = new StringBuilder(256);
 
             InitHandlers();
         }
@@ -433,7 +445,13 @@ namespace Leaf.Compiler
             m_CurrentNodeLineOffset = -(int) inStartPosition.LineNumber;
             m_CurrentNodeInstructionOffset = (uint) m_InstructionStream.Count;
             m_CurrentNodeInstructionLength = 0;
-            m_CurrentNodeLineCodePrefix = new StringHash32(inStartPosition.FileName).Concat("|").Concat(inNodeId).Concat(":");
+#if LEAF_USE_OLD_LINECODE_GENERATION
+            m_CurrentNodeLineCodePrefixString = string.Concat(inStartPosition.FileName, "|", inNodeId, ":");
+#else
+            m_CurrentNodeLineCodePrefixString = string.Concat(inStartPosition.FileName, "_", inNodeId, "_");
+#endif // LEAF_USE_OLD_LINECODE_GENERATION
+
+            m_CurrentNodeLineCodePrefix = m_CurrentNodeLineCodePrefixString;
 
             m_ParsedNodeIds.Add(inNodeId);
         }
@@ -496,10 +514,11 @@ namespace Leaf.Compiler
             ioPackage.m_Instructions.ExpressionTable = m_ExpressionTable.ToArray();
 
             Report report = default;
-            
+
             if (m_Verbose)
             {
                 m_BlockParserState.TempBuilder.Length = 0;
+                m_BlockParserState.TempBuilder.EnsureCapacity(2048);
 
                 m_BlockParserState.TempBuilder.Append("[LeafCompiler] Finished compiling module '")
                     .Append(ioPackage.Name()).Append('\'');
@@ -518,7 +537,7 @@ namespace Leaf.Compiler
                 {
                     HashSet<TableKeyPair> unused = new HashSet<TableKeyPair>(m_ReadVariables);
                     unused.ExceptWith(m_WrittenVariables);
-                    foreach(var key in unused)
+                    foreach (var key in unused)
                     {
                         m_BlockParserState.TempBuilder.Append("\nWARN: Variable ").Append(key.ToDebugString()).Append(" is read but not written to");
                     }
@@ -531,7 +550,7 @@ namespace Leaf.Compiler
                     unused.Clear();
                     unused.UnionWith(m_WrittenVariables);
                     unused.ExceptWith(m_ReadVariables);
-                    foreach(var key in unused)
+                    foreach (var key in unused)
                     {
                         m_BlockParserState.TempBuilder.Append("\nWARN: Variable ").Append(key.ToDebugString()).Append(" is written to but not read");
                     }
@@ -546,7 +565,7 @@ namespace Leaf.Compiler
                 {
                     if (m_UnrecognizedMethods.Count > 0)
                     {
-                        foreach(var methodId in m_UnrecognizedMethods)
+                        foreach (var methodId in m_UnrecognizedMethods)
                         {
                             m_BlockParserState.TempBuilder.Append("\nERROR: Method ").Append(methodId.ToDebugString()).Append(" is unrecognized");
                         }
@@ -558,7 +577,7 @@ namespace Leaf.Compiler
                     {
                         if (HasFlag(m_Flags, LeafCompilerFlags.Validate_InstanceMethodStrict))
                         {
-                            foreach(var methodId in m_UnrecognizedInstanceMethods)
+                            foreach (var methodId in m_UnrecognizedInstanceMethods)
                             {
                                 m_BlockParserState.TempBuilder.Append("\nERROR: Instance Method ").Append(methodId.ToDebugString()).Append(" is unrecognized");
                             }
@@ -567,7 +586,7 @@ namespace Leaf.Compiler
                         }
                         else
                         {
-                            foreach(var methodId in m_UnrecognizedInstanceMethods)
+                            foreach (var methodId in m_UnrecognizedInstanceMethods)
                             {
                                 m_BlockParserState.TempBuilder.Append("\nWARN: Instance Method ").Append(methodId.ToDebugString()).Append(" is unrecognized");
                             }
@@ -584,7 +603,7 @@ namespace Leaf.Compiler
 
                     if (unrecognizedNodeIds.Count > 0)
                     {
-                        foreach(var nodeId in unrecognizedNodeIds)
+                        foreach (var nodeId in unrecognizedNodeIds)
                         {
                             m_BlockParserState.TempBuilder.Append("\nWARN: Node Id '").Append(nodeId.ToDebugString()).Append("' is unrecognized");
                         }
@@ -598,7 +617,7 @@ namespace Leaf.Compiler
 
                     if (unrecognizedNodeIds.Count > 0)
                     {
-                        foreach(var nodeId in unrecognizedNodeIds)
+                        foreach (var nodeId in unrecognizedNodeIds)
                         {
                             m_BlockParserState.TempBuilder.Append("\nERROR: Local Node Id '").Append(nodeId.ToDebugString()).Append("' is unrecognized");
                         }
@@ -689,7 +708,7 @@ namespace Leaf.Compiler
         /// </summary>
         public void PreprocessLine(StringBuilder ioStringBuilder)
         {
-            ReplaceConsts(ioStringBuilder, m_Consts, true);
+            ReplaceConsts(ioStringBuilder, m_Consts, m_TempNoAllocCharBuffer, true);
         }
 
         private void ExpandMacro(BlockFilePosition inPosition, StringHash32 inMacroId, MacroDefinition inDefinition, StringSlice inArgs)
@@ -713,11 +732,11 @@ namespace Leaf.Compiler
             {
                 options = new StringSliceOptions(StringSplitOptions.None);
             }
-            foreach(var slice in inArgs.EnumeratedSplit(m_MacroArgsListSplitter, options))
+            foreach (var slice in inArgs.EnumeratedSplit(m_MacroArgsListSplitter, options))
             {
                 m_MacroReplaceArgs[argCount++] = slice.ToString();
             }
-            for(int i = argCount; i < inDefinition.TotalArgumentCount; i++)
+            for (int i = argCount; i < inDefinition.TotalArgumentCount; i++)
             {
                 m_MacroReplaceArgs[i] = string.Empty;
             }
@@ -785,7 +804,7 @@ namespace Leaf.Compiler
                 bool startOptional = false;
                 bool hasVaradic = false;
                 m_MacroFormatReplacements.Clear();
-                foreach(var varIdString in inDefinition.EnumeratedSplit(m_ArgsListSplitter, StringSplitOptions.None))
+                foreach (var varIdString in inDefinition.EnumeratedSplit(m_ArgsListSplitter, StringSplitOptions.None))
                 {
                     StringSlice varId = varIdString;
                     if (hasVaradic)
@@ -824,7 +843,7 @@ namespace Leaf.Compiler
                         throw new SyntaxException(m_BlockParserState.Position, "Argument id {0} in macro definition '{1}' ({2}) is repeated more than once", varIdString, id, inDefinition);
                     }
 
-                    m_MacroFormatReplacements.Add(varHash, string.Concat("{", m_MacroFormatReplacements.Count, "}"));
+                    m_MacroFormatReplacements.Add(varHash, string.Concat("{", m_MacroFormatReplacements.Count.ToStringLookup(), "}"));
                     if (!startOptional)
                     {
                         definition.RequiredArgumentCount++;
@@ -837,7 +856,7 @@ namespace Leaf.Compiler
                 tempBuilder.Length = 0;
                 tempBuilder.AppendSlice(inReplace);
                 EscapeCurlyBraces(tempBuilder);
-                ReplaceConsts(tempBuilder, m_MacroFormatReplacements, false);
+                ReplaceConsts(tempBuilder, m_MacroFormatReplacements, m_TempNoAllocCharBuffer, false);
                 definition.Replace = tempBuilder.Flush();
 
                 definition.TotalArgumentCount = m_MacroFormatReplacements.Count;
@@ -921,7 +940,7 @@ namespace Leaf.Compiler
             m_Handlers.Add(LeafTokens.Join, (p, d) => {
                 if (!m_HasForks)
                     throw new SyntaxException(p, "join must come after at least one fork statement");
-                
+
                 FlushContent();
                 WriteOp(LeafOpcode.JoinForks);
                 m_HasForks = false;
@@ -1086,7 +1105,7 @@ namespace Leaf.Compiler
         {
             if (m_Macros.Count == 0)
                 return false;
-            
+
             StringSlice macroId, macroArgs;
             if (TrySplitMethodArgs(inPosition, inLine, out macroId, out macroArgs))
             {
@@ -1150,7 +1169,7 @@ namespace Leaf.Compiler
 
                 if (!LeafUtils.IsValidIdentifier(nodeId))
                     throw new SyntaxException(inPosition, "node identifier '{0}' is not a valid identifier", nodeId);
-                    
+
                 WriteOp(inDirect);
                 WriteStringHash32(nodeId);
 
@@ -1223,7 +1242,7 @@ namespace Leaf.Compiler
 
                 if (!LeafUtils.IsValidIdentifier(nodeId))
                     throw new SyntaxException(inPosition, "node identifier '{0}' is not a valid identifier", nodeId);
-                    
+
                 WritePushValue(nodeId.Hash32());
 
                 if (HasFlag(m_Flags, LeafCompilerFlags.Validate_NodeRef))
@@ -1357,7 +1376,7 @@ namespace Leaf.Compiler
                 idSlice = inData.Data;
                 valueSlice = StringSlice.Empty;
             }
-            
+
             if (idSlice.Length == 0)
             {
                 throw new SyntaxException(inPosition, "Data id cannot be empty");
@@ -1513,7 +1532,7 @@ namespace Leaf.Compiler
                 return LeafInstruction.EmptyIndex;
             }
 
-            StringHash32 hash = inString.Hash32();
+            StringHash32 hash = StringHash32.Fast(inString);
             uint index;
             if (!m_StringTableReuseMap.TryGetValue(hash, out index))
             {
@@ -1561,73 +1580,73 @@ namespace Leaf.Compiler
             {
                 // TODO: Possible optimization if comparing constants?
 
-                switch(comparison.Operator)
+                switch (comparison.Operator)
                 {
                     case VariantCompareOperator.True:
-                        {
-                            WriteVariantOperand(comparison.Left);
-                            break;
-                        }
+                    {
+                        WriteVariantOperand(comparison.Left);
+                        break;
+                    }
 
                     case VariantCompareOperator.False:
-                        {
-                            WriteVariantOperand(comparison.Left);
-                            WriteOp(LeafOpcode.Not);
-                            break;
-                        }
+                    {
+                        WriteVariantOperand(comparison.Left);
+                        WriteOp(LeafOpcode.Not);
+                        break;
+                    }
 
                     case VariantCompareOperator.LessThan:
-                        {
-                            WriteVariantOperand(comparison.Left);
-                            WriteVariantOperand(comparison.Right);
-                            WriteOp(LeafOpcode.LessThan);
-                            break;
-                        }
+                    {
+                        WriteVariantOperand(comparison.Left);
+                        WriteVariantOperand(comparison.Right);
+                        WriteOp(LeafOpcode.LessThan);
+                        break;
+                    }
 
                     case VariantCompareOperator.LessThanOrEqualTo:
-                        {
-                            WriteVariantOperand(comparison.Left);
-                            WriteVariantOperand(comparison.Right);
-                            WriteOp(LeafOpcode.LessThanOrEqualTo);
-                            break;
-                        }
+                    {
+                        WriteVariantOperand(comparison.Left);
+                        WriteVariantOperand(comparison.Right);
+                        WriteOp(LeafOpcode.LessThanOrEqualTo);
+                        break;
+                    }
 
                     case VariantCompareOperator.EqualTo:
-                        {
-                            WriteVariantOperand(comparison.Left);
-                            WriteVariantOperand(comparison.Right);
-                            WriteOp(LeafOpcode.EqualTo);
-                            break;
-                        }
+                    {
+                        WriteVariantOperand(comparison.Left);
+                        WriteVariantOperand(comparison.Right);
+                        WriteOp(LeafOpcode.EqualTo);
+                        break;
+                    }
 
                     case VariantCompareOperator.NotEqualTo:
-                        {
-                            WriteVariantOperand(comparison.Left);
-                            WriteVariantOperand(comparison.Right);
-                            WriteOp(LeafOpcode.NotEqualTo);
-                            break;
-                        }
+                    {
+                        WriteVariantOperand(comparison.Left);
+                        WriteVariantOperand(comparison.Right);
+                        WriteOp(LeafOpcode.NotEqualTo);
+                        break;
+                    }
 
                     case VariantCompareOperator.GreaterThanOrEqualTo:
-                        {
-                            WriteVariantOperand(comparison.Left);
-                            WriteVariantOperand(comparison.Right);
-                            WriteOp(LeafOpcode.GreaterThanOrEqualTo);
-                            break;
-                        }
+                    {
+                        WriteVariantOperand(comparison.Left);
+                        WriteVariantOperand(comparison.Right);
+                        WriteOp(LeafOpcode.GreaterThanOrEqualTo);
+                        break;
+                    }
 
                     case VariantCompareOperator.GreaterThan:
-                        {
-                            WriteVariantOperand(comparison.Left);
-                            WriteVariantOperand(comparison.Right);
-                            WriteOp(LeafOpcode.GreaterThan);
-                            break;
-                        }
+                    {
+                        WriteVariantOperand(comparison.Left);
+                        WriteVariantOperand(comparison.Right);
+                        WriteOp(LeafOpcode.GreaterThan);
+                        break;
+                    }
 
                     default:
-                        {
-                            throw new SyntaxException(inPosition, "Comparison '{0}' is not supported by Leaf for expression '{1}'", comparison.Operator, inExpression);
-                        }
+                    {
+                        throw new SyntaxException(inPosition, "Comparison '{0}' is not supported by Leaf for expression '{1}'", comparison.Operator, inExpression);
+                    }
                 }
             }
             else
@@ -1642,94 +1661,94 @@ namespace Leaf.Compiler
             if (!VariantModification.TryParse(inExpression, out modification))
                 throw new SyntaxException(inPosition, "string '{0}' cannot be parsed to a set expression", inExpression);
 
-            switch(modification.Operator)
+            switch (modification.Operator)
             {
                 case VariantModifyOperator.Set:
-                    {
-                        WriteVariantOperand(modification.Operand);
-                        
-                        WriteOp(LeafOpcode.StoreTableValue);
-                        WriteTableKeyPair(modification.VariableKey);
-                        break;
-                    }
+                {
+                    WriteVariantOperand(modification.Operand);
+
+                    WriteOp(LeafOpcode.StoreTableValue);
+                    WriteTableKeyPair(modification.VariableKey);
+                    break;
+                }
 
                 case VariantModifyOperator.Add:
+                {
+                    // special case for single increment
+                    if (modification.Operand.Type == VariantOperand.Mode.Variant && modification.Operand.Value.AsInt() == 1)
                     {
-                        // special case for single increment
-                        if (modification.Operand.Type == VariantOperand.Mode.Variant && modification.Operand.Value.AsInt() == 1)
-                        {
-                            WriteOp(LeafOpcode.IncrementTableValue);
-                            WriteTableKeyPair(modification.VariableKey);
-                        }
-                        else
-                        {
-                            WriteOp(LeafOpcode.LoadTableValue);
-                            WriteTableKeyPair(modification.VariableKey);
-
-                            WriteVariantOperand(modification.Operand);
-
-                            WriteOp(LeafOpcode.Add);
-                            
-                            WriteOp(LeafOpcode.StoreTableValue);
-                            WriteTableKeyPair(modification.VariableKey);
-                        }
-                        break;
+                        WriteOp(LeafOpcode.IncrementTableValue);
+                        WriteTableKeyPair(modification.VariableKey);
                     }
+                    else
+                    {
+                        WriteOp(LeafOpcode.LoadTableValue);
+                        WriteTableKeyPair(modification.VariableKey);
+
+                        WriteVariantOperand(modification.Operand);
+
+                        WriteOp(LeafOpcode.Add);
+
+                        WriteOp(LeafOpcode.StoreTableValue);
+                        WriteTableKeyPair(modification.VariableKey);
+                    }
+                    break;
+                }
 
                 case VariantModifyOperator.Subtract:
+                {
+                    if (modification.Operand.Type == VariantOperand.Mode.Variant && modification.Operand.Value.AsInt() == 1)
                     {
-                        if (modification.Operand.Type == VariantOperand.Mode.Variant && modification.Operand.Value.AsInt() == 1)
-                        {
-                            WriteOp(LeafOpcode.DecrementTableValue);
-                            WriteTableKeyPair(modification.VariableKey);
-                        }
-                        else
-                        {
-                            WriteOp(LeafOpcode.LoadTableValue);
-                            WriteTableKeyPair(modification.VariableKey);
-
-                            WriteVariantOperand(modification.Operand);
-
-                            WriteOp(LeafOpcode.Subtract);
-                            
-                            WriteOp(LeafOpcode.StoreTableValue);
-                            WriteTableKeyPair(modification.VariableKey);
-                        }
-                        break;
+                        WriteOp(LeafOpcode.DecrementTableValue);
+                        WriteTableKeyPair(modification.VariableKey);
                     }
+                    else
+                    {
+                        WriteOp(LeafOpcode.LoadTableValue);
+                        WriteTableKeyPair(modification.VariableKey);
+
+                        WriteVariantOperand(modification.Operand);
+
+                        WriteOp(LeafOpcode.Subtract);
+
+                        WriteOp(LeafOpcode.StoreTableValue);
+                        WriteTableKeyPair(modification.VariableKey);
+                    }
+                    break;
+                }
 
                 case VariantModifyOperator.Multiply:
-                    {
-                        WriteOp(LeafOpcode.LoadTableValue);
-                        WriteTableKeyPair(modification.VariableKey);
+                {
+                    WriteOp(LeafOpcode.LoadTableValue);
+                    WriteTableKeyPair(modification.VariableKey);
 
-                        WriteVariantOperand(modification.Operand);
+                    WriteVariantOperand(modification.Operand);
 
-                        WriteOp(LeafOpcode.Multiply);
-                        
-                        WriteOp(LeafOpcode.StoreTableValue);
-                        WriteTableKeyPair(modification.VariableKey);
-                        break;
-                    }
+                    WriteOp(LeafOpcode.Multiply);
+
+                    WriteOp(LeafOpcode.StoreTableValue);
+                    WriteTableKeyPair(modification.VariableKey);
+                    break;
+                }
 
                 case VariantModifyOperator.Divide:
-                    {
-                        WriteOp(LeafOpcode.LoadTableValue);
-                        WriteTableKeyPair(modification.VariableKey);
+                {
+                    WriteOp(LeafOpcode.LoadTableValue);
+                    WriteTableKeyPair(modification.VariableKey);
 
-                        WriteVariantOperand(modification.Operand);
+                    WriteVariantOperand(modification.Operand);
 
-                        WriteOp(LeafOpcode.Divide);
-                        
-                        WriteOp(LeafOpcode.StoreTableValue);
-                        WriteTableKeyPair(modification.VariableKey);
-                        break;
-                    }
+                    WriteOp(LeafOpcode.Divide);
+
+                    WriteOp(LeafOpcode.StoreTableValue);
+                    WriteTableKeyPair(modification.VariableKey);
+                    break;
+                }
 
                 default:
-                    {
-                        throw new InvalidOperationException("Unknown modification operator " + modification.Operator);
-                    }
+                {
+                    throw new InvalidOperationException("Unknown modification operator " + modification.Operator);
+                }
             }
 
             if (HasFlag(m_Flags, LeafCompilerFlags.Validate_LoadStore))
@@ -1740,41 +1759,41 @@ namespace Leaf.Compiler
 
         private void WriteVariantOperand(VariantOperand inOperand)
         {
-            switch(inOperand.Type)
+            switch (inOperand.Type)
             {
                 case VariantOperand.Mode.Variant:
-                    {
-                        WritePushValue(inOperand.Value);
-                        break;
-                    }
+                {
+                    WritePushValue(inOperand.Value);
+                    break;
+                }
 
                 case VariantOperand.Mode.TableKey:
+                {
+                    if (HasFlag(m_Flags, LeafCompilerFlags.Validate_LoadStore))
                     {
-                        if (HasFlag(m_Flags, LeafCompilerFlags.Validate_LoadStore))
-                        {
-                            m_ReadVariables.Add(inOperand.TableKey);
-                        }
-
-                        WriteOp(LeafOpcode.LoadTableValue);
-                        WriteTableKeyPair(inOperand.TableKey);
-                        break;
+                        m_ReadVariables.Add(inOperand.TableKey);
                     }
+
+                    WriteOp(LeafOpcode.LoadTableValue);
+                    WriteTableKeyPair(inOperand.TableKey);
+                    break;
+                }
 
                 case VariantOperand.Mode.Method:
+                {
+                    MethodCall method = inOperand.MethodCall;
+                    uint argsIndex = EmitStringTableEntry(method.Args);
+
+                    if (HasFlag(m_Flags, LeafCompilerFlags.Validate_MethodInvocation) && m_MethodCache != null && !m_MethodCache.HasStatic(method.Id))
                     {
-                        MethodCall method = inOperand.MethodCall;
-                        uint argsIndex = EmitStringTableEntry(method.Args);
-
-                        if (HasFlag(m_Flags, LeafCompilerFlags.Validate_MethodInvocation) && m_MethodCache != null && !m_MethodCache.HasStatic(method.Id))
-                        {
-                            m_UnrecognizedMethods.Add(method.Id);
-                        }
-
-                        WriteOp(LeafOpcode.InvokeWithReturn_Unoptimized);
-                        WriteStringHash32(method.Id);
-                        WriteUInt32(argsIndex);
-                        break;
+                        m_UnrecognizedMethods.Add(method.Id);
                     }
+
+                    WriteOp(LeafOpcode.InvokeWithReturn_Unoptimized);
+                    WriteStringHash32(method.Id);
+                    WriteUInt32(argsIndex);
+                    break;
+                }
             }
         }
 
@@ -1791,48 +1810,48 @@ namespace Leaf.Compiler
             expression.Operator = comparison.Operator;
             CompileLogicalExpressionOperand(comparison.Left, out expression.LeftType, out expression.Left);
             CompileLogicalExpressionOperand(comparison.Right, out expression.RightType, out expression.Right);
-            
+
             return expression;
         }
 
         private void CompileLogicalExpressionOperand(VariantOperand inOperand, out LeafExpression.OperandType outType, out LeafExpression.OperandData outData)
         {
-            switch(inOperand.Type)
+            switch (inOperand.Type)
             {
                 case VariantOperand.Mode.Variant:
-                    {
-                        outType = LeafExpression.OperandType.Value;
-                        outData = new LeafExpression.OperandData(inOperand.Value);
-                        break;
-                    }
+                {
+                    outType = LeafExpression.OperandType.Value;
+                    outData = new LeafExpression.OperandData(inOperand.Value);
+                    break;
+                }
                 case VariantOperand.Mode.TableKey:
+                {
+                    if (HasFlag(m_Flags, LeafCompilerFlags.Validate_LoadStore))
                     {
-                        if (HasFlag(m_Flags, LeafCompilerFlags.Validate_LoadStore))
-                        {
-                            m_ReadVariables.Add(inOperand.TableKey);
-                        }
-                        outType = LeafExpression.OperandType.Read;
-                        outData = new LeafExpression.OperandData(inOperand.TableKey);
-                        break;
+                        m_ReadVariables.Add(inOperand.TableKey);
                     }
+                    outType = LeafExpression.OperandType.Read;
+                    outData = new LeafExpression.OperandData(inOperand.TableKey);
+                    break;
+                }
                 case VariantOperand.Mode.Method:
+                {
+                    MethodCall method = inOperand.MethodCall;
+                    uint argsIndex = EmitStringTableEntry(method.Args);
+
+                    if (HasFlag(m_Flags, LeafCompilerFlags.Validate_MethodInvocation) && m_MethodCache != null && !m_MethodCache.HasStatic(method.Id))
                     {
-                        MethodCall method = inOperand.MethodCall;
-                        uint argsIndex = EmitStringTableEntry(method.Args);
-
-                        if (HasFlag(m_Flags, LeafCompilerFlags.Validate_MethodInvocation) && m_MethodCache != null && !m_MethodCache.HasStatic(method.Id))
-                        {
-                            m_UnrecognizedMethods.Add(method.Id);
-                        }
-
-                        outType = LeafExpression.OperandType.Method;
-                        outData = new LeafExpression.OperandData(method.Id, argsIndex);
-                        break;
+                        m_UnrecognizedMethods.Add(method.Id);
                     }
+
+                    outType = LeafExpression.OperandType.Method;
+                    outData = new LeafExpression.OperandData(method.Id, argsIndex);
+                    break;
+                }
                 default:
-                    {
-                        throw new InvalidOperationException("Unknown operand type " + inOperand.Type);
-                    }
+                {
+                    throw new InvalidOperationException("Unknown operand type " + inOperand.Type);
+                }
             }
         }
 
@@ -1847,7 +1866,7 @@ namespace Leaf.Compiler
             ushort expressionCount = 0;
 
             LeafExpression expression;
-            foreach(var group in inExpression.EnumeratedSplit(m_ArgsListSplitter, StringSplitOptions.RemoveEmptyEntries))
+            foreach (var group in inExpression.EnumeratedSplit(m_ArgsListSplitter, StringSplitOptions.RemoveEmptyEntries))
             {
                 expression = CompileLogicalExpressionChunk(inPosition, group);
                 m_ExpressionTable.Add(expression);
@@ -1899,7 +1918,7 @@ namespace Leaf.Compiler
             {
                 m_ContentStartPosition = inPosition;
             }
-            
+
             inLine.Unescape(m_ContentBuilder);
             m_ContentBuilder.Append('\n');
         }
@@ -1910,7 +1929,7 @@ namespace Leaf.Compiler
             {
                 m_ContentBuilder.TrimEnd(ContentTrimChars);
                 string text = m_ContentBuilder.Flush();
-                
+
                 StringHash32 lineCode = EmitLine(m_ContentStartPosition, text);
                 WriteOp(LeafOpcode.RunLine);
                 WriteStringHash32(lineCode);
@@ -1985,7 +2004,7 @@ namespace Leaf.Compiler
         {
             if (m_CurrentLinker == null)
                 throw new InvalidOperationException("Attempting to pop null linker");
-            
+
             m_CurrentLinker.Clear();
             if (--m_LinkerCount > 0)
                 m_CurrentLinker = m_LinkerStack[m_LinkerCount - 1];
@@ -2000,10 +2019,10 @@ namespace Leaf.Compiler
         static private long CalculateLineMemoryUsage(Dictionary<StringHash32, string> inLines)
         {
             long size = 0;
-            size += Unsafe.SizeOf<StringHash32>() * inLines.Count;
+            size += (Unsafe.SizeOf<StringHash32>() + 4 + Unsafe.PointerSize) * inLines.Count;
 
             long sizeOfChar = sizeof(char);
-            foreach(var line in inLines.Values)
+            foreach (var line in inLines.Values)
             {
                 size += sizeOfChar * line.Length;
             }
@@ -2136,17 +2155,26 @@ namespace Leaf.Compiler
                 m_LineRetryCounter = 0;
             }
 
-            StringHash32 prefix = firstAttempt.Concat("-");
-            while(++m_LineRetryCounter < 999)
+            StringHash32 prefix = firstAttempt.FastConcat("-");
+            while (++m_LineRetryCounter < 999)
             {
-                StringHash32 suffix = prefix.Concat(m_LineRetryCounter.ToStringLookup());
-                if (!m_PackageLines.ContainsKey(suffix))
+                StringHash32 withSuffix = prefix.FastConcat(m_LineRetryCounter.ToStringLookup());
+                if (!m_PackageLines.ContainsKey(withSuffix))
                 {
-                    return suffix;
+                    CommitLineCodeToReverseLookup(m_CurrentNodeLineCodePrefixString, lineNumber, m_LineRetryCounter);
+                    return withSuffix;
                 }
             }
 
             throw new SyntaxException(inFilePosition, "Cannot generate a unique line code for this line");
+        }
+
+        [Conditional("PRESERVE_DEBUG_SYMBOLS")]
+        static private void CommitLineCodeToReverseLookup(string inPrefix, int inLineNumber, int inRetryCount)
+        {
+#if PRESERVE_DEBUG_SYMBOLS
+            new StringHash32(string.Concat(inPrefix, inLineNumber.ToStringLookup(), "-", inRetryCount.ToStringLookup()));
+#endif // PRESERVE_DEBUG_SYMBOLS
         }
 
         /// <summary>
@@ -2154,10 +2182,14 @@ namespace Leaf.Compiler
         /// </summary>
         static public StringHash32 GenerateLineCode(BlockFilePosition inFilePosition, string inNodeId, int inLineOffset = 0)
         {
+#if LEAF_USE_OLD_LINECODE_GENERATION
             return string.Format("{0}|{1}:{2}", inFilePosition.FileName, inNodeId, inFilePosition.LineNumber + inLineOffset);
+#else
+            return string.Format("{0}_{1}_{2}", inFilePosition.FileName, inNodeId, inFilePosition.LineNumber + inLineOffset);
+#endif // LEAF_USE_OLD_LINECODE_GENERATION
         }
 
-        static public void ReplaceConsts(StringBuilder ioLine, Dictionary<StringHash32, string> inConsts, bool inbSkipFirst)
+        static public void ReplaceConsts(StringBuilder ioLine, Dictionary<StringHash32, string> inConsts, char[] inNoAllocHelper, bool inbSkipFirst)
         {
             if (inConsts == null || inConsts.Count == 0 || ioLine.Length == 0)
             {
@@ -2171,14 +2203,14 @@ namespace Leaf.Compiler
             }
 
             char c;
-            for(; offset < ioLine.Length; offset++)
+            for (; offset < ioLine.Length; offset++)
             {
                 c = ioLine[offset];
                 if (c == '$')
                 {
                     int start = offset + 1;
                     int end = start;
-                    while(end < ioLine.Length)
+                    while (end < ioLine.Length)
                     {
                         if (IsTokenEndCharacter(ioLine[end]))
                             break;
@@ -2187,13 +2219,19 @@ namespace Leaf.Compiler
                     }
 
                     StringBuilderSlice constId = new StringBuilderSlice(ioLine, start, end - start);
-                    StringHash32 constHash = constId.Hash32();
+                    StringHash32 constHash = StringHash32.Fast(constId);
 
                     string constValue;
                     if (inConsts.TryGetValue(constHash, out constValue))
                     {
-                        ioLine.Remove(offset, constId.Length + 1);
-                        ioLine.Insert(offset, constValue);
+                        int remainingIdx = offset + constId.Length + 1;
+                        int remainingLength = ioLine.Length - remainingIdx;
+                        ioLine.CopyTo(remainingIdx, inNoAllocHelper, 0, remainingLength);
+                        ioLine.Length = offset;
+                        ioLine.Append(constValue);
+                        ioLine.Append(inNoAllocHelper, 0, remainingLength);
+                        //ioLine.Remove(offset, constId.Length + 1);
+                        //ioLine.Insert(offset, constValue);
                         offset--;
                     }
                     else
@@ -2206,7 +2244,7 @@ namespace Leaf.Compiler
 
         static private bool IsValidSimpleToken(StringSlice inToken)
         {
-            for(int i = 0; i < inToken.Length; i++)
+            for (int i = 0; i < inToken.Length; i++)
             {
                 if (IsTokenEndCharacter(inToken[i]))
                     return false;
@@ -2221,7 +2259,7 @@ namespace Leaf.Compiler
                 return true;
             if (char.IsLetterOrDigit(inChar))
                 return false;
-            switch(inChar)
+            switch (inChar)
             {
                 case '_':
                 case '-':
@@ -2256,7 +2294,7 @@ namespace Leaf.Compiler
 
         // Validates method invocation
         Validate_MethodInvocation = 0x04,
-        
+
         // Validates references to other nodes 
         Validate_NodeRef = 0x08,
 
@@ -2271,7 +2309,7 @@ namespace Leaf.Compiler
 
         // Dumps module disassembly when module compilation is completed
         Dump_Disassembly = 0x80,
-        
+
         // Treats missing instance methods as errors
         Validate_InstanceMethodStrict = 0x100,
 
@@ -2284,14 +2322,14 @@ namespace Leaf.Compiler
     /// Mask of all error/warning types.
     /// </summary>
     [Flags]
-    public enum LeafCompilerErrorMask : ushort {
-
+    public enum LeafCompilerErrorMask : ushort
+    {
         // Variable is read but not written
         ReadOnlyVariable = 0x01,
 
         // Variable is written but not read
         WriteOnlyVariable = 0x02,
-        
+
         // Cannot recognize static method
         StaticMethodUnrecognized = 0x04,
 

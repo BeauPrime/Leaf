@@ -36,7 +36,7 @@ namespace Leaf
 
         bool TryLookupNode(StringHash32 inNodeId, TNode inLocalNode, out TNode outNode);
 
-        IEnumerator RunLine(LeafThreadState<TNode> inThreadState, StringSlice inLine);
+        IEnumerator RunLine(LeafThreadState<TNode> inThreadState, LeafLineInfo inLine);
         IEnumerator ShowOptions(LeafThreadState<TNode> inThreadState, LeafChoice inChoice);
         
         LeafThreadState<TNode> Fork(LeafThreadState<TNode> inParentThreadState, TNode inForkNode);

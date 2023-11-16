@@ -162,16 +162,16 @@ namespace Leaf.Defaults
 
         #region Dialog
 
-        public virtual IEnumerator RunLine(LeafThreadState<TNode> inThreadState, StringSlice inLine)
+        public virtual IEnumerator RunLine(LeafThreadState<TNode> inThreadState, LeafLineInfo inLine)
         {
-            if (inLine.IsEmpty || inLine.IsWhitespace)
+            if (inLine.IsEmptyOrWhitespace)
                 yield break;
 
             LeafThreadHandle handle = inThreadState.GetHandle();
             TagString eventString = inThreadState.TagString;
             TagStringEventHandler eventHandler = m_TagHandler;
 
-            m_TagParser.Parse(ref eventString, inLine, inThreadState);
+            m_TagParser.Parse(ref eventString, inLine.Text, inThreadState);
 
             TagStringEventHandler overrideHandler = m_TextDisplayer.PrepareLine(eventString, eventHandler);
             if (overrideHandler != null)

@@ -45,6 +45,7 @@ namespace Leaf.Runtime
             long size = 0;
             size += inBlock.InstructionStream.Length;
             size += Unsafe.SizeOf<LeafExpression>() * inBlock.ExpressionTable.Length;
+            size += (4 + Unsafe.PointerSize) * inBlock.StringTable.Length;
 
             StringSlice str;
             for(int i = 0; i < inBlock.StringTable.Length; i++)

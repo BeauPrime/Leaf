@@ -166,7 +166,7 @@ namespace Leaf.Runtime
 
                                 if (LeafUtils.TryLookupLine(Plugin, Registers.B1_Identifier, node, out line))
                                 {
-                                    Wait = Plugin.RunLine(Thread, line);
+                                    Wait = Plugin.RunLine(Thread, new LeafLineInfo(Registers.B1_Identifier, line));
                                     if (Wait != null)
                                     {
                                         return true;
