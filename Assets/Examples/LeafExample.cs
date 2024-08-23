@@ -8,6 +8,7 @@ using BeauUtil.Variants;
 using BeauRoutine;
 using BeauUtil.Debugger;
 using System.Collections;
+using System.Collections.Generic;
 
 namespace Leaf.Examples
 {
@@ -44,6 +45,14 @@ namespace Leaf.Examples
 
             var package = LeafAsset.CompileAsync(File, new Parser(), out IEnumerator wait);
             yield return wait;
+
+            List<KeyValuePair<StringHash32, string>> linesWithCustomNames = new List<KeyValuePair<StringHash32, string>>();
+            package.GatherAllLinesWithCustomNames(linesWithCustomNames);
+            foreach (var line in linesWithCustomNames)
+            {
+                Debug.LogFormat("Line '{0}' has custom name '{1}'", line.Key, line.Value);
+            }
+
             LeafNode startNode;
             if (!package.TryGetNode("Start", out startNode))
             {
@@ -77,7 +86,7 @@ namespace Leaf.Examples
 
             public override LeafCompilerFlags CompilerFlags
             {
-                get { return LeafCompilerFlags.Default_Development | LeafCompilerFlags.Dump_Disassembly; }
+                get { return LeafCompilerFlags.Default_Development | LeafCompilerFlags.Dump_Stats | LeafCompilerFlags.Dump_Disassembly | LeafCompilerFlags.Preserve_CustomLineNameStrings; }
             }
 
             public override LeafNodePackage<LeafNode> CreatePackage(string inFileName)

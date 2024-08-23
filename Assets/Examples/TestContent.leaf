@@ -1,11 +1,11 @@
 #include "IncludeExample.leaf"
 
 :: Start
-{@lou} Yep, this is test content.
+{@lou} Yep, this is test content. $[CH1/Intro/01-Argo]
 {@lou} Just test content.
 {@me} Is it{wait 0.2} interesting?
 {@lou} Probably not.
-$call Wait(15)
+$call Wait(2)
 $SeriesOfLines()
 $call Wait(1)
 	Some other content?\

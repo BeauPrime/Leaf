@@ -33,8 +33,6 @@ namespace Leaf.Editor
 
             ctx.AddObjectToAsset("txt", asset);
             ctx.SetMainObject(asset);
-
-            AssetDatabase.SaveAssets();
         }
     }
 }

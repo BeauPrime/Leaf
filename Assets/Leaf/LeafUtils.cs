@@ -340,7 +340,7 @@ namespace Leaf
                     indexBuffer[i] = i;
                 
                 int iterations;
-                int randomIdx = StaticRandom.Prepare(inTag.Data, inParseContext, count, out iterations);
+                int randomIdx = StaticRandom.Prepare(StringHash32.Fast(inTag.Data), inParseContext, count, out iterations);
                 
                 for(int i = 0; i <= iterations; i++)
                 {

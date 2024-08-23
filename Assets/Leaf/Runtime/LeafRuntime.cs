@@ -166,7 +166,7 @@ namespace Leaf.Runtime
 
                                 if (LeafUtils.TryLookupLine(Plugin, Registers.B1_Identifier, node, out line))
                                 {
-                                    Wait = Plugin.RunLine(Thread, new LeafLineInfo(Registers.B1_Identifier, line));
+                                    Wait = Plugin.RunLine(Thread, new LeafLineInfo(Registers.B1_Identifier, line, node.Package().GetLineCustomName(Registers.B1_Identifier)));
                                     if (Wait != null)
                                     {
                                         return true;
@@ -737,19 +737,11 @@ namespace Leaf.Runtime
             public void Cleanup()
             {
                 State = State_Done;
-                
-                IDisposable disposableWait = Wait as IDisposable;
-                if (disposableWait != null)
-                {
-                    disposableWait.Dispose();
-                }
+
+                (Wait as IDisposable)?.Dispose();
                 Wait = null;
 
-                IDisposable disposableInterrupt = InterruptWait as IDisposable;
-                if (disposableInterrupt != null)
-                {
-                    disposableInterrupt.Dispose();
-                }
+                (InterruptWait as IDisposable)?.Dispose();
                 InterruptWait = null;
                 
                 Registers = default;

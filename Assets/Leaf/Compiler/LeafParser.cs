@@ -73,7 +73,7 @@ namespace Leaf.Compiler
 
         public override bool TryEvaluatePackage(IBlockParserUtil inUtil, TPackage inPackage, TNode inCurrentBlock, TagData inMetadata, StringBuilder inLine)
         {
-            StringHash32 id = inMetadata.Id;
+            StringHash32 id = StringHash32.Fast(inMetadata.Id);
             if (id == LeafTokens.Macro)
             {
                 GenerateMacro(inUtil, inPackage.m_Compiler, inMetadata.Data);

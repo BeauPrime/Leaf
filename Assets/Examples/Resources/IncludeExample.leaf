@@ -14,8 +14,8 @@
     It makes my life easier!
 
 #macro VaradicTest(firstLine, secondLine, ...rest) \
-    $firstLine \
-    $secondLine \
+    $firstLine \\\
+    $secondLine \\\
     $rest
 
 :: anotherIncludedNode

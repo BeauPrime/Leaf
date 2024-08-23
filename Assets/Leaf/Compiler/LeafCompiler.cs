@@ -361,6 +361,7 @@ namespace Leaf.Compiler
 
         private LeafNodePackage m_CurrentPackage;
         private readonly Dictionary<StringHash32, string> m_PackageLines = new Dictionary<StringHash32, string>(256, CompareUtils.DefaultEquals<StringHash32>());
+        private readonly Dictionary<StringHash32, string> m_PackageLineNames = new Dictionary<StringHash32, string>(256, CompareUtils.DefaultEquals<StringHash32>());
         private readonly Dictionary<StringHash32, MacroDefinition> m_Macros = new Dictionary<StringHash32, MacroDefinition>(7, CompareUtils.DefaultEquals<StringHash32>());
         private readonly Dictionary<StringHash32, string> m_Consts = new Dictionary<StringHash32, string>(7, CompareUtils.DefaultEquals<StringHash32>());
 
@@ -508,7 +509,7 @@ namespace Leaf.Compiler
         /// </summary>
         public Report FinishModule(LeafNodePackage ioPackage)
         {
-            ioPackage.SetLines(m_PackageLines);
+            ioPackage.SetLines(m_PackageLines, m_PackageLineNames);
             ioPackage.m_Instructions.InstructionStream = m_InstructionStream.ToArray();
             ioPackage.m_Instructions.StringTable = m_StringTable.ToArray();
             ioPackage.m_Instructions.ExpressionTable = m_ExpressionTable.ToArray();
@@ -527,10 +528,11 @@ namespace Leaf.Compiler
                 {
                     m_BlockParserState.TempBuilder.Append("\nEmitted ").Append(m_InstructionStream.Count).Append(" bytes of instructions");
                     m_BlockParserState.TempBuilder.Append("\nEmitted ").Append(m_PackageLines.Count).Append(" text lines");
+                    m_BlockParserState.TempBuilder.Append("\nEmitted ").Append(m_PackageLineNames.Count).Append(" custom line names");
                     m_BlockParserState.TempBuilder.Append("\nEmitted ").Append(m_ExpressionTable.Count).Append(" expressions");
                     m_BlockParserState.TempBuilder.Append("\nEmitted ").Append(m_StringTable.Count).Append(" strings");
                     m_BlockParserState.TempBuilder.Append("\nMemory Usage: ").Append(LeafInstructionBlock.CalculateMemoryUsage(ioPackage.m_Instructions)).Append(" bytes leaf / ")
-                        .Append(CalculateLineMemoryUsage(m_PackageLines)).Append(" bytes text lines");
+                        .Append(CalculateLineMemoryUsage(m_PackageLines)).Append(" bytes text lines / ").Append(CalculateLineMemoryUsage(m_PackageLineNames)).Append(" bytes custom line names");
                 }
 
                 if (HasFlag(m_Flags, LeafCompilerFlags.Validate_LoadStore))
@@ -647,6 +649,7 @@ namespace Leaf.Compiler
             }
 
             m_PackageLines.Clear();
+            m_PackageLineNames.Clear();
             m_Macros.Clear();
             m_Consts.Clear();
             m_ExpressionTable.Clear();
@@ -668,6 +671,7 @@ namespace Leaf.Compiler
         {
             m_InstructionStream.Clear();
             m_PackageLines.Clear();
+            m_PackageLineNames.Clear();
             m_ExpressionTable.Clear();
             m_StringTable.Clear();
             m_StringTableReuseMap.Clear();
@@ -1942,12 +1946,13 @@ namespace Leaf.Compiler
         {
             StringHash32 key = default(StringHash32);
             int lineCodeIdx = inLine.IndexOf("$[");
+            string staticLineCode = null;
             if (lineCodeIdx >= 0)
             {
                 int end = inLine.IndexOf(']', lineCodeIdx);
                 if (end >= 0)
                 {
-                    string staticLineCode = inLine.Substring(lineCodeIdx + 2, end - lineCodeIdx - 2).Trim().ToString();
+                    staticLineCode = inLine.Substring(lineCodeIdx + 2, end - lineCodeIdx - 2).Trim().ToString();
                     inLine = inLine.Substring(0, lineCodeIdx).TrimEnd();
 
                     uint hexKey;
@@ -1964,6 +1969,10 @@ namespace Leaf.Compiler
             if (key.IsEmpty)
             {
                 key = GenerateLocalLineCode(inPosition);
+            }
+            else if (HasFlag(m_Flags, LeafCompilerFlags.Preserve_CustomLineNameStrings))
+            {
+                m_PackageLineNames.Add(key, staticLineCode);
             }
             m_PackageLines.Add(key, inLine.ToString());
             return key;
@@ -2312,6 +2321,9 @@ namespace Leaf.Compiler
 
         // Treats missing instance methods as errors
         Validate_InstanceMethodStrict = 0x100,
+
+        // Preserves all custom line names as strings
+        Preserve_CustomLineNameStrings = 0x200,
 
         Default_Development = Debug | Validate_NodeRef | Validate_MethodInvocation | Generate_NoOpBoundary,
         Default_Strict = Debug | Validate_NodeRef | Validate_MethodInvocation | Validate_InstanceMethodStrict | Validate_LoadStore | Generate_NoOpBoundary,

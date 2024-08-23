@@ -26,18 +26,26 @@ namespace Leaf
         [BlockMeta("basePath"), UnityEngine.Scripting.Preserve] protected string m_RootPath = string.Empty;
 
         protected readonly Dictionary<StringHash32, string> m_LineTable = new Dictionary<StringHash32, string>(CompareUtils.DefaultEquals<StringHash32>());
+        protected readonly Dictionary<StringHash32, string> m_LineNames = new Dictionary<StringHash32, string>(CompareUtils.DefaultEquals<StringHash32>());
         protected internal LeafInstructionBlock m_Instructions;
 
         internal LeafCompiler m_Compiler;
         internal LeafCompiler.Report m_ErrorState;
 
-        internal void SetLines(Dictionary<StringHash32, string> inLineTable)
+        internal void SetLines(Dictionary<StringHash32, string> inLineTable, Dictionary<StringHash32, string> inLineNameTable)
         {
             m_LineTable.Clear();
             m_LineTable.EnsureCapacity(inLineTable.Count);
             foreach (var kv in inLineTable)
             {
                 m_LineTable.Add(kv.Key, kv.Value);
+            }
+
+            m_LineNames.Clear();
+            m_LineNames.EnsureCapacity(inLineNameTable.Count);
+            foreach(var kv in inLineNameTable)
+            {
+                m_LineNames.Add(kv.Key, kv.Value);
             }
         }
 
@@ -50,11 +58,42 @@ namespace Leaf
         }
 
         /// <summary>
+        /// Retrieves the custom name associated with the given linecode.
+        /// </summary>
+        public string GetLineCustomName(StringHash32 inLineCode)
+        {
+            string meta;
+            m_LineNames.TryGetValue(inLineCode, out meta);
+            return meta;
+        }
+
+        /// <summary>
         /// Returns all lines embedded in this package.
         /// </summary>
         public IEnumerable<KeyValuePair<StringHash32, string>> AllLines()
         {
             return m_LineTable;
+        }
+
+        /// <summary>
+        /// Gathers all lines in this package that have a custom name associated with it.
+        /// </summary>
+        public int GatherAllLinesWithCustomNames(ICollection<KeyValuePair<StringHash32, string>> outLines)
+        {
+            if (outLines == null)
+                throw new ArgumentNullException("outLines");
+
+            int count = 0;
+            foreach(var key in m_LineTable.Keys)
+            {
+                if (m_LineNames.TryGetValue(key, out string customName))
+                {
+                    outLines.Add(new KeyValuePair<StringHash32, string>(key, customName));
+                    count++;
+                }
+            }
+
+            return count;
         }
 
         /// <summary>
@@ -68,6 +107,7 @@ namespace Leaf
         public virtual void Clear()
         {
             m_LineTable.Clear();
+            m_LineNames.Clear();
             m_Instructions = default(LeafInstructionBlock);
         }
 

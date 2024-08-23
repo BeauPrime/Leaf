@@ -26,10 +26,16 @@ namespace Leaf
         /// </summary>
         public readonly StringSlice Text;
 
-        public LeafLineInfo(StringHash32 inLineCode, StringSlice inText)
+        /// <summary>
+        /// Custom line name.
+        /// </summary>
+        public readonly StringSlice CustomLineName;
+
+        public LeafLineInfo(StringHash32 inLineCode, StringSlice inText, StringSlice inLineName)
         {
             LineCode = inLineCode;
             Text = inText;
+            CustomLineName = inLineName;
         }
 
         /// <summary>
