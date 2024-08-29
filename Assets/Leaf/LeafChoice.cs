@@ -58,7 +58,7 @@ namespace Leaf
 
                 m_AnswersOffset = 0;
                 m_AnswersLength = 0;
-                m_DefaultAnswerTarget = null;
+                m_DefaultAnswerTarget = Variant.Null;
 
                 m_DataOffset = 0;
                 m_DataLength = 0;

@@ -512,14 +512,14 @@ namespace Leaf
                 if (inner[0] == '$')
                 {
                     inData = inner;
-                    outObject = null;
+                    outObject = Variant.Null;
                     return false;
                 }
 
                 Variant returnVal;
                 if (!TryResolveVariant(inContext, inner, out returnVal))
                 {
-                    outObject = null;
+                    outObject = Variant.Null;
                     return false;
                 }
 
@@ -528,7 +528,7 @@ namespace Leaf
             }
             else
             {
-                outObject = null;
+                outObject = Variant.Null;
                 return false;
             }
         }
@@ -614,7 +614,7 @@ namespace Leaf
             if (!VariantOperand.TryParse(inSource, out operand))
             {
                 Log.Error("[LeafUtils] Unable to parse operand '{0}' to operand", inSource);
-                outValue = null;
+                outValue = Variant.Null;
                 return false;
             }
 
@@ -651,14 +651,14 @@ namespace Leaf
                         if (!inContext.MethodCache.TryStaticInvoke(operand.MethodCall, inContext, out rawObj))
                         {
                             Log.Error("[LeafUtils] Unable to execute {0} in inline method call '{1}'", operand.MethodCall, inSource);
-                            outValue = null;
+                            outValue = Variant.Null;
                             return false;
                         }
 
                         if (!Variant.TryConvertFrom(rawObj, out value))
                         {
                             Log.Error("[LeafUtils] Unable to convert result of {0} ({1}) to Variant in inline method call '{2}'", operand.MethodCall, rawObj, inSource);
-                            outValue = null;
+                            outValue = Variant.Null;
                             return false;
                         }
                         break;
