@@ -33,6 +33,7 @@ namespace Leaf.Runtime
             // 0-7
             [FieldOffset(0)] public Variant B0_Variant;
             [FieldOffset(0)] public byte B0_Byte;
+            [FieldOffset(0)] public float B0_Float;
             [FieldOffset(2)] public ushort B0_Count;
             [FieldOffset(2)] public short B0_JumpShort;
             [FieldOffset(4)] public uint B0_Offset;

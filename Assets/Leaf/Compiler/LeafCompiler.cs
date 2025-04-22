@@ -322,7 +322,15 @@ namespace Leaf.Compiler
             public string Replace;
         }
 
-        private delegate void CommandHandler(BlockFilePosition inPosition, TagData inData);
+        private struct IntrinsicCandidateInfo
+        {
+            public StringSlice Args;
+            public StringHash32 DirectTarget;
+            public StringSlice IndirectTarget;
+        }
+
+        private delegate void CommandHandler(LeafCompiler inCompiler, BlockFilePosition inPosition, TagData inData);
+        private delegate bool IntrinsicHandler(LeafCompiler inCompiler, BlockFilePosition inPosition, in IntrinsicCandidateInfo inExecutionInfo);
 
         #endregion // Types
 
@@ -334,13 +342,17 @@ namespace Leaf.Compiler
 
         #endregion // Consts
 
+        // handler tables
+
+        static private readonly Dictionary<StringHash32, CommandHandler> s_Handlers = new Dictionary<StringHash32, CommandHandler>(24, CompareUtils.DefaultEquals<StringHash32>());
+        static private readonly Dictionary<StringHash32, IntrinsicHandler> s_Intrinsics = new Dictionary<StringHash32, IntrinsicHandler>(4, CompareUtils.DefaultEquals<StringHash32>());
+
         // setup
 
         private readonly ILeafCompilerPlugin m_Plugin;
         private bool m_Verbose;
         private LeafCompilerFlags m_Flags;
         private Func<string> m_RetrieveRoot;
-        private readonly Dictionary<StringHash32, CommandHandler> m_Handlers = new Dictionary<StringHash32, CommandHandler>(23, CompareUtils.DefaultEquals<StringHash32>());
         private readonly StringSlice.ISplitter m_ArgsListSplitter = new StringUtils.ArgsList.Splitter(false);
         private readonly StringSlice.ISplitter m_MacroArgsListSplitter = new StringUtils.ArgsList.Splitter(',', false, false);
         private IMethodCache m_MethodCache;
@@ -409,6 +421,7 @@ namespace Leaf.Compiler
                 m_ContentBuilder = new StringBuilder(256);
 
             InitHandlers();
+            InitIntrinsics();
         }
 
         #region Lifecycle
@@ -765,7 +778,7 @@ namespace Leaf.Compiler
 
             StringHash32 id = inConst;
 
-            if (m_Handlers.ContainsKey(id) || id == LeafTokens.Macro || id == LeafTokens.Const)
+            if (s_Handlers.ContainsKey(id) || id == LeafTokens.Macro || id == LeafTokens.Const)
             {
                 throw new SyntaxException(m_BlockParserState.Position, "'{0}' is a reserved keyword and cannot be used for consts", id);
             }
@@ -785,7 +798,7 @@ namespace Leaf.Compiler
 
             StringHash32 id = inMacroId;
 
-            if (m_Handlers.ContainsKey(id) || id == LeafTokens.Macro || id == LeafTokens.Const)
+            if (s_Handlers.ContainsKey(id) || id == LeafTokens.Macro || id == LeafTokens.Const)
             {
                 throw new SyntaxException(m_BlockParserState.Position, "'{0}' is a reserved keyword and cannot be used for macros", id);
             }
@@ -875,7 +888,7 @@ namespace Leaf.Compiler
         /// </summary>
         public void UndefineMacro(StringHash32 inMacroId)
         {
-            if (m_Handlers.ContainsKey(inMacroId) || inMacroId == LeafTokens.Macro || inMacroId == LeafTokens.Const)
+            if (s_Handlers.ContainsKey(inMacroId) || inMacroId == LeafTokens.Macro || inMacroId == LeafTokens.Const)
             {
                 throw new SyntaxException(m_BlockParserState.Position, "'{0}' is a reserved keyword and cannot be used for macros", inMacroId);
             }
@@ -895,153 +908,213 @@ namespace Leaf.Compiler
 
         #endregion // Preprocessor
 
-        #region Process
+        #region Global Handler Tables
 
-        private void InitHandlers()
+        static private void InitHandlers()
         {
-            m_Handlers.Add(LeafTokens.Stop, (p, d) => {
-                FlushContent();
-                ProcessSingleOpOptionalCondition(p, d, LeafOpcode.Stop);
+            if (s_Handlers.Count > 0)
+                return;
+
+            s_Handlers.Add(LeafTokens.Stop, (c, p, d) => {
+                c.FlushContent();
+                c.ProcessSingleOpOptionalCondition(p, d, LeafOpcode.Stop);
             });
 
-            m_Handlers.Add(LeafTokens.Yield, (p, d) => {
-                FlushContent();
-                WriteOp(LeafOpcode.Yield);
+            s_Handlers.Add(LeafTokens.Yield, (c, p, d) => {
+                c.FlushContent();
+                c.WriteOp(LeafOpcode.Yield);
             });
 
-            m_Handlers.Add(LeafTokens.Return, (p, d) => {
-                FlushContent();
-                ProcessSingleOpOptionalCondition(p, d, LeafOpcode.ReturnFromNode);
+            s_Handlers.Add(LeafTokens.Return, (c, p, d) => {
+                c.FlushContent();
+                c.ProcessSingleOpOptionalCondition(p, d, LeafOpcode.ReturnFromNode);
             });
 
-            m_Handlers.Add(LeafTokens.Loop, (p, d) => {
-                FlushContent();
-                ProcessSingleOpOptionalCondition(p, d, LeafOpcode.Loop);
+            s_Handlers.Add(LeafTokens.Loop, (c, p, d) => {
+                c.FlushContent();
+                c.ProcessSingleOpOptionalCondition(p, d, LeafOpcode.Loop);
             });
 
-            m_Handlers.Add(LeafTokens.Goto, (p, d) => {
-                FlushContent();
-                ProcessGotoBranch(p, d, LeafOpcode.GotoNode, LeafOpcode.GotoNodeIndirect);
+            s_Handlers.Add(LeafTokens.Goto, (c, p, d) => {
+                c.FlushContent();
+                c.ProcessGotoBranch(p, d, LeafOpcode.GotoNode, LeafOpcode.GotoNodeIndirect);
             });
 
-            m_Handlers.Add(LeafTokens.Branch, (p, d) => {
-                FlushContent();
-                ProcessGotoBranch(p, d, LeafOpcode.BranchNode, LeafOpcode.BranchNodeIndirect);
+            s_Handlers.Add(LeafTokens.Branch, (c, p, d) => {
+                c.FlushContent();
+                c.ProcessGotoBranch(p, d, LeafOpcode.BranchNode, LeafOpcode.BranchNodeIndirect);
             });
 
-            m_Handlers.Add(LeafTokens.Fork, (p, d) => {
-                FlushContent();
-                ProcessGotoBranch(p, d, LeafOpcode.ForkNode, LeafOpcode.ForkNodeIndirect);
-                m_HasForks = true;
+            s_Handlers.Add(LeafTokens.Fork, (c, p, d) => {
+                c.FlushContent();
+                c.ProcessGotoBranch(p, d, LeafOpcode.ForkNode, LeafOpcode.ForkNodeIndirect);
+                c.m_HasForks = true;
             });
 
-            m_Handlers.Add(LeafTokens.Start, (p, d) => {
-                FlushContent();
-                ProcessGotoBranch(p, d, LeafOpcode.ForkNodeUntracked, LeafOpcode.ForkNodeIndirectUntracked);
-                m_HasForks = true;
+            s_Handlers.Add(LeafTokens.Start, (c, p, d) => {
+                c.FlushContent();
+                c.ProcessGotoBranch(p, d, LeafOpcode.ForkNodeUntracked, LeafOpcode.ForkNodeIndirectUntracked);
+                c.m_HasForks = true;
             });
 
-            m_Handlers.Add(LeafTokens.Join, (p, d) => {
-                if (!m_HasForks)
+            s_Handlers.Add(LeafTokens.Join, (c, p, d) => {
+                if (!c.m_HasForks)
                     throw new SyntaxException(p, "join must come after at least one fork statement");
 
-                FlushContent();
-                WriteOp(LeafOpcode.JoinForks);
-                m_HasForks = false;
+                c.FlushContent();
+                c.WriteOp(LeafOpcode.JoinForks);
+                c.m_HasForks = false;
             });
 
-            m_Handlers.Add(LeafTokens.Set, (p, d) => {
+            s_Handlers.Add(LeafTokens.Set, (c, p, d) => {
                 if (d.Data.IsEmpty)
                     throw new SyntaxException(p, "set must be provided an expression");
 
-                FlushContent();
-                WriteExpressionAssignment(p, d.Data);
+                c.FlushContent();
+                c.WriteExpressionAssignment(p, d.Data);
             });
 
-            m_Handlers.Add(LeafTokens.Call, (p, d) => {
+            s_Handlers.Add(LeafTokens.Call, (c, p, d) => {
                 if (d.Data.IsEmpty)
                     throw new SyntaxException(p, "call must be provided a method");
 
-                FlushContent();
-                ProcessInvocation(p, d);
+                c.FlushContent();
+                c.ProcessInvocation(p, d);
             });
 
-            m_Handlers.Add(LeafTokens.Choose, (p, d) => {
-                if (!m_HasChoices)
+            s_Handlers.Add(LeafTokens.Wait, (c, p, d) => {
+                if (d.Data.IsEmpty)
+                    throw new SyntaxException(p, "wait must be provided a duration in seconds");
+
+                c.FlushContent();
+
+                if (StringParser.TryParseFloat(d.Data, out float hardcodedVal))
+                {
+                    c.WriteOp(LeafOpcode.WaitDuration);
+                    c.WriteInt32((int) (hardcodedVal * LeafRuntime.IntToFloat));
+                }
+                else
+                {
+                    c.WriteExpressionEvaluate(p, d.Data);
+                    c.WriteOp(LeafOpcode.WaitDurationIndirect);
+                }
+            });
+
+            s_Handlers.Add(LeafTokens.Choose, (c, p, d) => {
+                if (!c.m_HasChoices)
                     throw new SyntaxException(p, "choose must come after at least one choice statement");
 
-                FlushContent();
+                c.FlushContent();
 
-                WriteOp(LeafOpcode.ShowChoices);
+                c.WriteOp(LeafOpcode.ShowChoices);
                 if (d.Data.IsEmpty || d.Data == LeafTokens.Goto)
-                    WriteOp(LeafOpcode.GotoNodeIndirect);
+                    c.WriteOp(LeafOpcode.GotoNodeIndirect);
                 else if (d.Data == LeafTokens.Branch)
-                    WriteOp(LeafOpcode.BranchNodeIndirect);
+                    c.WriteOp(LeafOpcode.BranchNodeIndirect);
                 else if (d.Data == LeafTokens.Continue)
-                    WriteOp(LeafOpcode.PopValue);
+                    c.WriteOp(LeafOpcode.PopValue);
                 else
                     throw new SyntaxException(p, "unrecognized argument to choose statement '{0}' - must be either goto or branch", d.Data);
 
-                m_HasChoices = false;
+                c.m_HasChoices = false;
             });
 
-            m_Handlers.Add(LeafTokens.Choice, (p, d) => {
-                FlushContent();
-                ProcessChoice(p, d);
+            s_Handlers.Add(LeafTokens.Choice, (c, p, d) => {
+                c.FlushContent();
+                c.ProcessChoice(p, d);
             });
 
-            m_Handlers.Add(LeafTokens.Answer, (p, d) => {
-                FlushContent();
-                ProcessAnswer(p, d);
+            s_Handlers.Add(LeafTokens.Answer, (c, p, d) => {
+                c.FlushContent();
+                c.ProcessAnswer(p, d);
             });
 
-            m_Handlers.Add(LeafTokens.Data, (p, d) => {
-                FlushContent();
-                ProcessData(p, d);
+            s_Handlers.Add(LeafTokens.Data, (c, p, d) => {
+                c.FlushContent();
+                c.ProcessData(p, d);
             });
 
-            m_Handlers.Add(LeafTokens.If, (p, d) => {
-                FlushContent();
-                NewLinker().If(p, d.Data, this);
+            s_Handlers.Add(LeafTokens.If, (c, p, d) => {
+                c.FlushContent();
+                c.NewLinker().If(p, d.Data, c);
             });
 
-            m_Handlers.Add(LeafTokens.ElseIf, (p, d) => {
-                FlushContent();
-                CurrentLinker(p).ElseIf(p, d.Data, this);
+            s_Handlers.Add(LeafTokens.ElseIf, (c, p, d) => {
+                c.FlushContent();
+                c.CurrentLinker(p).ElseIf(p, d.Data, c);
             });
 
-            m_Handlers.Add(LeafTokens.Else, (p, d) => {
-                FlushContent();
-                CurrentLinker(p).Else(p, this);
+            s_Handlers.Add(LeafTokens.Else, (c, p, d) => {
+                c.FlushContent();
+                c.CurrentLinker(p).Else(p, c);
             });
 
-            m_Handlers.Add(LeafTokens.EndIf, (p, d) => {
-                FlushContent();
-                CurrentLinker(p).EndIf(p, this);
-                PopLinker();
+            s_Handlers.Add(LeafTokens.EndIf, (c, p, d) => {
+                c.FlushContent();
+                c.CurrentLinker(p).EndIf(p, c);
+                c.PopLinker();
             });
 
-            m_Handlers.Add(LeafTokens.While, (p, d) => {
-                FlushContent();
-                NewLinker().While(p, d.Data, this);
+            s_Handlers.Add(LeafTokens.While, (c, p, d) => {
+                c.FlushContent();
+                c.NewLinker().While(p, d.Data, c);
             });
 
-            m_Handlers.Add(LeafTokens.Break, (p, d) => {
-                FlushContent();
-                CurrentLinker(p).Break(p, this);
+            s_Handlers.Add(LeafTokens.Break, (c, p, d) => {
+                c.FlushContent();
+                c.CurrentLinker(p).Break(p, c);
             });
 
-            m_Handlers.Add(LeafTokens.Continue, (p, d) => {
-                FlushContent();
-                CurrentLinker(p).Continue(p, this);
+            s_Handlers.Add(LeafTokens.Continue, (c, p, d) => {
+                c.FlushContent();
+                c.CurrentLinker(p).Continue(p, c);
             });
 
-            m_Handlers.Add(LeafTokens.EndWhile, (p, d) => {
-                FlushContent();
-                CurrentLinker(p).EndWhile(p, this);
-                PopLinker();
+            s_Handlers.Add(LeafTokens.EndWhile, (c, p, d) => {
+                c.FlushContent();
+                c.CurrentLinker(p).EndWhile(p, c);
+                c.PopLinker();
             });
         }
+
+        static private void InitIntrinsics()
+        {
+            if (s_Intrinsics.Count > 0)
+                return;
+
+            s_Intrinsics.Add(LeafIntrinsics.Wait, AttemptCompileWaitIntrinsic);
+        }
+
+        static private bool AttemptCompileWaitIntrinsic(LeafCompiler compiler, BlockFilePosition pos, in IntrinsicCandidateInfo info)
+        {
+            // Wait is not allowed with target
+            if (!info.DirectTarget.IsEmpty || !info.IndirectTarget.IsEmpty)
+            {
+                return false;
+            }
+            
+            if (info.Args.IsEmpty)
+            {
+                compiler.WriteOp(LeafOpcode.Yield);
+                return true;
+            }
+            else if (StringParser.TryParseFloat(info.Args, out float val))
+            {
+                compiler.WriteOp(LeafOpcode.WaitDuration);
+                compiler.WriteInt32((int) (val * LeafRuntime.FloatToInt));
+                return true;
+            }
+            else
+            {
+                compiler.UnpackWriteExpressionEvaluate(pos, info.Args);
+                compiler.WriteOp(LeafOpcode.WaitDurationIndirect);
+                return true;
+            }
+        }
+
+        #endregion // Global Handler Tables
+
+        #region Process
 
         /// <summary>
         /// Processes the given line into instructions.
@@ -1085,9 +1158,9 @@ namespace Leaf.Compiler
             StringHash32 commandType = data.Id;
 
             CommandHandler handler;
-            if (m_Handlers.TryGetValue(commandType, out handler))
+            if (s_Handlers.TryGetValue(commandType, out handler))
             {
-                handler(inPosition, data);
+                handler(this, inPosition, data);
                 return true;
             }
 
@@ -1436,6 +1509,10 @@ namespace Leaf.Compiler
             }
 
             methodId = method;
+
+            if (TryProcessIntrinsics(inPosition, methodId, args, targetDirect, indirectTarget))
+                return;
+
             argsIndex = EmitStringTableEntry(args);
 
             if (targetDirect.IsEmpty)
@@ -1470,6 +1547,19 @@ namespace Leaf.Compiler
             WriteUInt32(argsIndex);
         }
 
+        private bool TryProcessIntrinsics(BlockFilePosition inPosition, StringHash32 inMethodId, StringSlice inArgs, StringHash32 inTargetDirect, StringSlice inIndirectTarget)
+        {
+            if (s_Intrinsics.TryGetValue(inMethodId, out IntrinsicHandler handler))
+            {
+                IntrinsicCandidateInfo info;
+                info.Args = inArgs;
+                info.IndirectTarget = inIndirectTarget;
+                info.DirectTarget = inTargetDirect;
+                return handler(this, inPosition, info);
+            }
+            return false;
+        }
+
         #endregion // Commands
 
         #region Instructions
@@ -1479,41 +1569,55 @@ namespace Leaf.Compiler
             get { return m_InstructionStream.Count; }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void WriteOp(LeafOpcode inOpcode)
         {
             m_CurrentNodeInstructionLength += LeafInstruction.WriteOpcode(m_InstructionStream, inOpcode);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void WriteByte(byte inByte)
         {
             m_CurrentNodeInstructionLength += LeafInstruction.WriteByte(m_InstructionStream, inByte);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void WriteStringHash32(StringHash32 inArgument)
         {
             m_CurrentNodeInstructionLength += LeafInstruction.WriteStringHash32(m_InstructionStream, inArgument);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void WriteUInt32(uint inArgument)
         {
             m_CurrentNodeInstructionLength += LeafInstruction.WriteUInt32(m_InstructionStream, inArgument);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void WriteUInt16(ushort inArgument)
         {
             m_CurrentNodeInstructionLength += LeafInstruction.WriteUInt16(m_InstructionStream, inArgument);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void WriteInt16(short inArgument)
         {
             m_CurrentNodeInstructionLength += LeafInstruction.WriteInt16(m_InstructionStream, inArgument);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void WriteInt32(int inArgument)
+        {
+            m_CurrentNodeInstructionLength += LeafInstruction.WriteInt32(m_InstructionStream, inArgument);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void WriteVariant(Variant inArgument)
         {
             m_CurrentNodeInstructionLength += LeafInstruction.WriteVariant(m_InstructionStream, inArgument);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void WriteTableKeyPair(TableKeyPair inArgument)
         {
             m_CurrentNodeInstructionLength += LeafInstruction.WriteTableKeyPair(m_InstructionStream, inArgument);
@@ -1554,6 +1658,28 @@ namespace Leaf.Compiler
 
         private void WriteExpressionEvaluate(BlockFilePosition inPosition, StringSlice inExpression)
         {
+            if (inExpression.Length > 0 && inExpression[0] == '$')
+            {
+                throw new SyntaxException(inPosition, "Expression '{0}' is written using inline evaluation syntax in an unsupported context", inExpression);
+            }
+
+            VariantOperand operand;
+            if (VariantOperand.TryParse(inExpression, out operand))
+            {
+                WriteVariantOperand(operand);
+                return;
+            }
+
+            throw new SyntaxException(inPosition, "Expression '{0}' is not a single, non-logical expression", inExpression);
+        }
+
+        private void UnpackWriteExpressionEvaluate(BlockFilePosition inPosition, StringSlice inExpression)
+        {
+            if (inExpression.Length > 1 && inExpression[0] == '$')
+            {
+                inExpression = inExpression.Substring(1);
+            }
+
             VariantOperand operand;
             if (VariantOperand.TryParse(inExpression, out operand))
             {
@@ -1972,9 +2098,29 @@ namespace Leaf.Compiler
             }
             else if (HasFlag(m_Flags, LeafCompilerFlags.Preserve_CustomLineNameStrings))
             {
-                m_PackageLineNames.Add(key, staticLineCode);
+                if (m_PackageLineNames.TryGetValue(key, out string existingLineName))
+                {
+                    if (existingLineName != staticLineCode)
+                    {
+                        throw new SyntaxException(inPosition, "Line code '{0}' already added with mismatched name '{1}' vs '{2}'", key.ToDebugString(), existingLineName, staticLineCode);
+                    }
+                }
+                else
+                {
+                    m_PackageLineNames.Add(key, staticLineCode);
+                }
             }
-            m_PackageLines.Add(key, inLine.ToString());
+            if (m_PackageLines.TryGetValue(key, out string existingLineData))
+            {
+                if (!inLine.Equals(existingLineData))
+                {
+                    throw new SyntaxException(inPosition, "Line code '{0}' already added with mismatched contents '{1}' vs '{2}'", key.ToDebugString(), existingLineData, inLine);
+                }
+            }
+            else
+            {
+                m_PackageLines.Add(key, inLine.ToString());
+            }
             return key;
         }
 

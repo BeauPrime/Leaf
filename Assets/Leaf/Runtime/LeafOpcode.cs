@@ -300,6 +300,18 @@ namespace Leaf.Runtime
         // Shows any options set for the last known choice and flushes the choice
         // Stack: push Variant selectedTarget
         // Size: 1
-        ShowChoices
+        ShowChoices,
+
+        // INTRINSICS
+
+        // Interrupts the thread for a specified number of seconds
+        // Args: float duration
+        // Size: 5
+        WaitDuration,
+
+        // Interrupts the thread for a specified number of seconds
+        // Stack: pop float duration
+        // Size: 1
+        WaitDurationIndirect,
     }
 }

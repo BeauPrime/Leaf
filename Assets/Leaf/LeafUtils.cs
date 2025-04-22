@@ -143,10 +143,11 @@ namespace Leaf
         /// <summary>
         /// Waits for the given number of seconds.
         /// </summary>
-        [LeafMember("Wait"), UnityEngine.Scripting.Preserve]
-        static public IEnumerator Wait(float inSeconds)
+        [Obsolete("LeafUtils.Wait has been replaced by the $wait command")]
+        static public void Wait([BindContext] LeafEvalContext inContext, float inSeconds)
         {
-            yield return inSeconds;
+            inContext.Thread.DelayBy(inSeconds);
+            inContext.Thread.Interrupt();
         }
 
         /// <summary>

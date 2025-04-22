@@ -38,10 +38,19 @@ namespace Leaf.Compiler
         static public readonly StringHash32 Set = "set";
         static public readonly StringHash32 Start = "start";
         static public readonly StringHash32 Stop = "stop";
+        static public readonly StringHash32 Wait = "wait";
         static public readonly StringHash32 While = "while";
         static public readonly StringHash32 Yield = "yield";
 
         static public readonly StringHash32 Const = "const";
         static public readonly StringHash32 Macro = "macro";
+    }
+
+    /// <summary>
+    /// Tokens for parsing intrinsics.
+    /// </summary>
+    static public class LeafIntrinsics
+    {
+        static public readonly StringHash32 Wait = "Wait";
     }
 }

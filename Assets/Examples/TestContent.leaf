@@ -25,6 +25,9 @@ $while local:someVar < 5
 	$set local:someVar + 1
 $endwhile
 
+$call Wait($local:someVar)
+$wait local:someVar
+
 :: MoveLoop
 
 $call Shift(1, 0, 0, 0.5, Smooth)

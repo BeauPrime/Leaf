@@ -387,6 +387,13 @@ namespace Leaf.Runtime
                             ioBuilder.Append(' ').Append(dataId.ToDebugString());
                             break;
                         }
+
+                    case LeafOpcode.WaitDuration:
+                        {
+                            float duration = LeafRuntime.IntToFloat * ReadInt32(stream, ref pc);
+                            ioBuilder.Append(' ').AppendNoAlloc(duration, 2);
+                            break;
+                        }
                 }
             }
         }

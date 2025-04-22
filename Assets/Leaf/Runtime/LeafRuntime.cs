@@ -20,6 +20,9 @@ namespace Leaf.Runtime
     /// </summary>
     static public class LeafRuntime
     {
+        internal const int FloatToInt = 1 << 12;
+        internal const float IntToFloat = 1f / FloatToInt;
+
         /// <summary>
         /// Evaluates the given node, using the provided thread state.
         /// </summary>
@@ -717,7 +720,25 @@ namespace Leaf.Runtime
                                 }
                                 break;
                             }
-                    
+
+                        case LeafOpcode.WaitDuration:
+                            {
+                                Registers.B0_Float = LeafInstruction.ReadInt32(block.InstructionStream, ref pc) * IntToFloat;
+                                Thread.WriteProgramCounter(pc);
+
+                                Thread.DelayBy(Registers.B0_Float);
+                                return true;
+                            }
+
+                        case LeafOpcode.WaitDurationIndirect:
+                            {
+                                Thread.WriteProgramCounter(pc);
+
+                                Registers.B0_Float = Thread.PopValue().AsFloat();
+                                Thread.DelayBy(Registers.B0_Float);
+                                return true;
+                            }
+
                         case LeafOpcode.NoOp:
                             {
                                 break;
@@ -1325,6 +1346,8 @@ namespace Leaf.Runtime
                 case LeafOpcode.Loop:
                 case LeafOpcode.JumpIfFalse:
                 case LeafOpcode.JumpIndirect:
+                case LeafOpcode.WaitDuration:
+                case LeafOpcode.WaitDurationIndirect:
                     return true;
 
                 default:
@@ -1399,6 +1422,9 @@ namespace Leaf.Runtime
                 case LeafOpcode.AddChoiceAnswer: return 5;
                 case LeafOpcode.AddChoiceData: return 5;
                 case LeafOpcode.ShowChoices: return 1;
+
+                case LeafOpcode.WaitDuration: return 5;
+                case LeafOpcode.WaitDurationIndirect: return 1;
 
                 default: throw new ArgumentOutOfRangeException("inOpcode");
             }

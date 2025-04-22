@@ -1,7 +1,7 @@
 # Leaf
 
-**Current Version: 0.3.14**  
-Updated 29 Aug 2024 | Changelog (Not yet available)
+**Current Version: 0.3.15**  
+Updated 22 April 2025 | Changelog (Not yet available)
 
 ## About
 Leaf is a narrative-focused scripting language and runtime for Unity.
