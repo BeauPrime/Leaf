@@ -740,15 +740,40 @@ namespace Leaf
         /// </summary>
         static public bool TryLookupLine(ILeafPlugin inPlugin, StringHash32 inLineCode, LeafNode inLocalNode, out string outLine)
         {
-            if (!inPlugin.TryLookupLine(inLineCode, inLocalNode, out outLine))
+            var module = inLocalNode.Package();
+            LeafRuntimeConfiguration config = inPlugin.Configuration;
+            bool canFindLine = config != null ? !inPlugin.Configuration.IgnoreModuleLineTable : true;
+
+            if (!inPlugin.TryLookupLine(inLineCode, inLocalNode, out outLine) && canFindLine)
             {
-                var module = inLocalNode.Package();
                 return module.TryGetLine(inLineCode, out outLine);
             }
 
             return true;
         }
-        
+
+        /// <summary>
+        /// Attempts to look up the line info with the given code, first using the plugin
+        /// and falling back to searching the node's module.
+        /// </summary>
+        static public bool TryLookupLineInfo(ILeafPlugin inPlugin, StringHash32 inLineCode, LeafNode inLocalNode, out LeafLineInfo outLineInfo)
+        {
+            string lineText;
+            
+            var module = inLocalNode.Package();
+            LeafRuntimeConfiguration config = inPlugin.Configuration;
+            bool canFindLine = config != null ? !inPlugin.Configuration.IgnoreModuleLineTable : true;
+
+            if (!inPlugin.TryLookupLine(inLineCode, inLocalNode, out lineText) && canFindLine)
+            {
+                canFindLine = module.TryGetLine(inLineCode, out lineText);
+            }
+
+            string customName = module.GetLineCustomName(inLineCode);
+            outLineInfo = new LeafLineInfo(inLineCode, lineText, customName);
+            return canFindLine;
+        }
+
         /// <summary>
         /// Attempts to look up the node with the given id, first using the plugin
         /// and falling back to searching the node's module.
@@ -781,5 +806,331 @@ namespace Leaf
         }
 
         #endregion // Lookups
+
+        #region Data Extraction
+
+        private unsafe struct SimulatedStack
+        {
+            private const int Capacity = 32;
+
+            public fixed ulong EncodedVariants[Capacity];
+            public BitSet32 ConstTracker;
+            public int StackCount;
+
+            public void PushConst(Variant inVariant)
+            {
+                Assert.True(StackCount < Capacity);
+                int idx = StackCount++;
+                EncodedVariants[idx] = Unsafe.FastReinterpret<Variant, ulong>(inVariant);
+                ConstTracker.Set(idx);
+            }
+
+            public void PushUncertain(Variant inVariant, bool inbConst)
+            {
+                Assert.True(StackCount < Capacity);
+                int idx = StackCount++;
+                EncodedVariants[idx] = Unsafe.FastReinterpret<Variant, ulong>(inVariant);
+                ConstTracker.Set(idx, inbConst);
+            }
+
+            public void PushNonConst()
+            {
+                Assert.True(StackCount < Capacity);
+                int idx = StackCount++;
+                EncodedVariants[idx] = 0UL;
+                ConstTracker.Unset(idx);
+            }
+
+            public Variant Pop()
+            {
+                Assert.True(StackCount > 0);
+                int idx = --StackCount;
+                return Unsafe.FastReinterpret<ulong, Variant>(EncodedVariants[idx]);
+            }
+
+            public Variant Pop(out bool outConst)
+            {
+                Assert.True(StackCount > 0);
+                int idx = --StackCount;
+                outConst = ConstTracker.IsSet(idx);
+                return Unsafe.FastReinterpret<ulong, Variant>(EncodedVariants[idx]);
+            }
+        }
+
+        /// <summary>
+        /// Retrieves all referenced line codes in the given node.
+        /// </summary>
+        static public int ReadAllLineCodes(LeafNode inNode, ICollection<StringHash32> outLineCodes)
+        {
+            Assert.NotNull(inNode);
+            Assert.NotNull(outLineCodes);
+
+            LeafNode node = inNode;
+            uint pc = inNode.m_InstructionOffset;
+            uint end = pc + node.m_InstructionCount;
+            byte[] stream;
+
+            int count = 0;
+
+            LeafOpcode op;
+            stream = node.Package().m_Instructions.InstructionStream;
+            while (pc < end)
+            {
+                op = LeafInstruction.ReadOpcode(stream, ref pc);
+                switch (op)
+                {
+                    case LeafOpcode.RunLine:
+                    {
+                        outLineCodes.Add(LeafInstruction.ReadStringHash32(stream, ref pc));
+                        count++;
+                        break;
+                    }
+                    case LeafOpcode.AddChoiceOption:
+                    {
+                        outLineCodes.Add(LeafInstruction.ReadStringHash32(stream, ref pc));
+                        LeafInstruction.ReadByte(stream, ref pc);
+                        count++;
+                        break;
+                    }
+                    default:
+                    {
+                        pc = pc + LeafRuntime.OpSize(op) - 1;
+                        break;
+                    }
+                }
+            }
+
+            return count;
+        }
+
+        /// <summary>
+        /// Retrieves all referenced node identifiers in the given node.
+        /// NOTE: this requires simulating all stack operations - don't call this in a hot loop.
+        /// </summary>
+        static public unsafe int ReadAllDirectlyReferencedNodes(LeafNode inNode, ICollection<StringHash32> outNodeIds)
+        {
+            Assert.NotNull(inNode);
+            Assert.NotNull(outNodeIds);
+
+            LeafNode node = inNode;
+            LeafInstructionBlock block = node.Package().m_Instructions;
+            uint pc = inNode.m_InstructionOffset;
+            uint end = pc + node.m_InstructionCount;
+            byte[] stream;
+
+            SimulatedStack stack = default;
+            LeafChoice.OptionFlags lastOptionFlags = default;
+
+            int count = 0;
+
+            LeafOpcode op;
+            
+            stream = block.InstructionStream;
+            while (pc < end)
+            {
+                op = LeafInstruction.ReadOpcode(stream, ref pc);
+                switch (op)
+                {
+                    case LeafOpcode.EvaluateSingleExpression:
+                    {
+                        LeafInstruction.ReadUInt32(stream, ref pc);
+                        stack.PushNonConst();
+                        break;
+                    }
+
+                    case LeafOpcode.EvaluateExpressionsAnd:
+                    case LeafOpcode.EvaluateExpressionsOr:
+                    {
+                        LeafInstruction.ReadUInt32(stream, ref pc);
+                        LeafInstruction.ReadUInt16(stream, ref pc);
+                        stack.PushNonConst();
+                        break;
+                    }
+
+                    case LeafOpcode.InvokeWithReturn_Unoptimized:
+                    {
+                        LeafInstruction.ReadStringHash32(stream, ref pc);
+                        LeafInstruction.ReadStringTableString(stream, ref pc, block.StringTable);
+                        stack.PushNonConst();
+                        break;
+                    }
+
+                    case LeafOpcode.InvokeWithTarget_Unoptimized:
+                    {
+                        LeafInstruction.ReadStringHash32(stream, ref pc);
+                        LeafInstruction.ReadStringTableString(stream, ref pc, block.StringTable);
+                        stack.Pop();
+                        break;
+                    }
+
+                    case LeafOpcode.PushValue:
+                    {
+                        stack.PushConst(LeafInstruction.ReadVariant(stream, ref pc));
+                        break;
+                    }
+
+                    case LeafOpcode.PopValue:
+                    {
+                        stack.Pop();
+                        break;
+                    }
+
+                    case LeafOpcode.DuplicateValue:
+                    {
+                        Variant var = stack.Pop(out bool isConst);
+                        stack.PushUncertain(var, isConst);
+                        stack.PushUncertain(var, isConst);
+                        break;
+                    }
+
+                    case LeafOpcode.LoadTableValue:
+                    {
+                        LeafInstruction.ReadTableKeyPair(stream, ref pc);
+                        stack.PushNonConst();
+                        break;
+                    }
+
+                    case LeafOpcode.StoreTableValue:
+                    {
+                        LeafInstruction.ReadTableKeyPair(stream, ref pc);
+                        stack.Pop();
+                        break;
+                    }
+
+                    case LeafOpcode.Add:
+                    case LeafOpcode.Subtract:
+                    case LeafOpcode.Multiply:
+                    case LeafOpcode.Divide:
+                    case LeafOpcode.LessThan:
+                    case LeafOpcode.LessThanOrEqualTo:
+                    case LeafOpcode.EqualTo:
+                    case LeafOpcode.NotEqualTo:
+                    case LeafOpcode.GreaterThanOrEqualTo:
+                    case LeafOpcode.GreaterThan:
+                    {
+                        stack.Pop(out bool a);
+                        stack.Pop(out bool b);
+                        stack.PushUncertain(default, a && b);
+                        break;
+                    }
+
+                    case LeafOpcode.Not:
+                    {
+                        Variant var = stack.Pop(out bool a);
+                        stack.PushUncertain(!var.AsBool(), a);
+                        break;
+                    }
+
+                    case LeafOpcode.CastToBool:
+                    {
+                        Variant var = stack.Pop(out bool a);
+                        stack.PushUncertain(var.AsBool(), a);
+                        break;
+                    }
+
+                    case LeafOpcode.JumpIfFalse:
+                    {
+                        LeafInstruction.ReadInt16(stream, ref pc);
+                        stack.Pop();
+                        break;
+                    }
+
+                    case LeafOpcode.JumpIndirect:
+                    {
+                        stack.Pop();
+                        break;
+                    }
+
+                    case LeafOpcode.GotoNode:
+                    case LeafOpcode.BranchNode:
+                    case LeafOpcode.ForkNode:
+                    case LeafOpcode.ForkNodeUntracked:
+                    {
+                        outNodeIds.Add(LeafInstruction.ReadStringHash32(stream, ref pc));
+                        count++;
+                        break;
+                    }
+
+                    case LeafOpcode.GotoNodeIndirect:
+                    case LeafOpcode.BranchNodeIndirect:
+                    case LeafOpcode.ForkNodeIndirect:
+                    case LeafOpcode.ForkNodeIndirectUntracked:
+                    {
+                        Variant v = stack.Pop(out bool isConst);
+                        if (isConst)
+                        {
+                            outNodeIds.Add(v.AsStringHash());
+                            count++;
+                        }
+                        break;
+                    }
+
+                    case LeafOpcode.AddChoiceOption:
+                    {
+                        LeafInstruction.ReadStringHash32(stream, ref pc);
+                        byte flags = LeafInstruction.ReadByte(stream, ref pc);
+                        lastOptionFlags = (LeafChoice.OptionFlags) flags;
+
+                        stack.Pop();
+                        Variant target = stack.Pop(out bool isConst);
+                        if (isConst && (lastOptionFlags & LeafChoice.OptionFlags.IsSelector) == 0)
+                        {
+                            outNodeIds.Add(target.AsStringHash());
+                            count++;
+                        }
+                        
+                        break;
+                    }
+
+                    case LeafOpcode.AddChoiceAnswer:
+                    {
+                        LeafInstruction.ReadStringHash32(stream, ref pc);
+
+                        Variant target = stack.Pop(out bool isConst);
+                        if (isConst)
+                        {
+                            outNodeIds.Add(target.AsStringHash());
+                            count++;
+                        }
+
+                        break;
+                    }
+
+                    case LeafOpcode.AddChoiceData:
+                    {
+                        LeafInstruction.ReadStringHash32(stream, ref pc);
+                        stack.Pop();
+                        break;
+                    }
+
+                    case LeafOpcode.ShowChoices:
+                    {
+                        stack.PushNonConst();
+                        break;
+                    }
+
+                    case LeafOpcode.NoOp:
+                    {
+                        break;
+                    }
+
+                    case LeafOpcode.WaitDurationIndirect:
+                    {
+                        stack.Pop();
+                        break;
+                    }
+
+                    default:
+                    {
+                        pc = pc + LeafRuntime.OpSize(op) - 1;
+                        break;
+                    }
+                }
+            }
+
+            return count;
+        }
+
+        #endregion // Data Extraction
     }
 }

@@ -19,6 +19,8 @@ namespace Leaf.Examples
         public DialogBox DialogBox;
         public LeafAsset File;
         public LeafExampleActor Actor;
+        public string StartNode;
+        public bool IgnoreLineTables;
 
         #endregion // Inspector
 
@@ -40,6 +42,8 @@ namespace Leaf.Examples
             m_Manager.MethodCache.LoadStatic();
             yield return null;
 
+            m_Manager.RuntimeConfig.IgnoreModuleLineTable = IgnoreLineTables;
+
             BuildTagParser();
             yield return null;
 
@@ -53,10 +57,34 @@ namespace Leaf.Examples
                 Debug.LogFormat("Line '{0}' has custom name '{1}'", line.Key, line.Value);
             }
 
-            LeafNode startNode;
-            if (!package.TryGetNode("Start", out startNode))
+            List<StringHash32> lines = new List<StringHash32>();
+            foreach(var node in package)
             {
-                Debug.LogError("[LeafExample] File does not contain a node named 'Start'");
+                lines.Clear();
+                int lineCount = LeafUtils.ReadAllLineCodes(node, lines);
+                Debug.LogFormat("Node '{0}' has {1} referenced line codes", node.Id().ToDebugString(), lineCount);
+                foreach(var line in lines)
+                {
+                    Debug.Log(line.ToDebugString());
+                }
+            }
+
+            HashSet<StringHash32> nodeRefs = new HashSet<StringHash32>();
+            foreach (var node in package)
+            {
+                nodeRefs.Clear();
+                int nodeCount = LeafUtils.ReadAllDirectlyReferencedNodes(node, nodeRefs);
+                Debug.LogFormat("Node '{0}' has {1} referenced nodes", node.Id().ToDebugString(), nodeCount);
+                foreach (var nodeId in nodeRefs)
+                {
+                    Debug.Log(nodeId.ToDebugString());
+                }
+            }
+
+            LeafNode startNode;
+            if (!package.TryGetNode(StartNode, out startNode))
+            {
+                Debug.LogError("[LeafExample] File does not contain a node named " + StartNode);
                 yield break;
             }
 

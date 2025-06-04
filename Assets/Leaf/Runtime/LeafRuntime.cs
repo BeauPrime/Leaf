@@ -167,9 +167,9 @@ namespace Leaf.Runtime
                                 Registers.B1_Identifier  = LeafInstruction.ReadStringHash32(block.InstructionStream, ref pc);
                                 Thread.WriteProgramCounter(pc);
 
-                                if (LeafUtils.TryLookupLine(Plugin, Registers.B1_Identifier, node, out line))
+                                if (LeafUtils.TryLookupLineInfo(Plugin, Registers.B1_Identifier, node, out LeafLineInfo lineInfo))
                                 {
-                                    Wait = Plugin.RunLine(Thread, new LeafLineInfo(Registers.B1_Identifier, line, node.Package().GetLineCustomName(Registers.B1_Identifier)));
+                                    Wait = Plugin.RunLine(Thread, lineInfo);
                                     if (Wait != null)
                                     {
                                         return true;
@@ -1457,6 +1457,13 @@ namespace Leaf.Runtime
         /// Invoked when a method fails to be executed.
         /// </summary>
         public LeafMethodErrorHandler OnMethodCallError;
+
+        /// <summary>
+        /// If set, package line tables will be ignored.
+        /// Set this if you expect all your text to be localized
+        /// or otherwise retrieved from another source.
+        /// </summary>
+        public bool IgnoreModuleLineTable;
     }
 
     /// <summary>
