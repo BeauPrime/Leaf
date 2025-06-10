@@ -837,6 +837,7 @@ MonoBehaviour:
   File: {fileID: -1942890987711236906, guid: bf20e4d767dcdda408d741538d9b6b1b, type: 3}
   Actor: {fileID: 615833204}
   StartNode: Start
+  IgnoreLineTables: 0
 --- !u!4 &1215938699
 Transform:
   m_ObjectHideFlags: 0

@@ -991,7 +991,7 @@ namespace Leaf.Compiler
                 if (StringParser.TryParseFloat(d.Data, out float hardcodedVal))
                 {
                     c.WriteOp(LeafOpcode.WaitDuration);
-                    c.WriteInt32((int) (hardcodedVal * LeafRuntime.IntToFloat));
+                    c.WriteInt32((int) (hardcodedVal * LeafRuntime.FloatToInt));
                 }
                 else
                 {
