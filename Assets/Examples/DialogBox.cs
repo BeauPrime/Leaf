@@ -25,7 +25,7 @@ namespace Leaf.Examples
             Continue.gameObject.SetActive(false);
 
             m_Handler = new TagStringEventHandler();
-            m_Handler.Register(LeafUtils.Events.Character, (e, o) => Character.SetText(e.Argument0.ToString()));
+            m_Handler.Register(LeafUtils.Events.Character, (e, o) => Character.SetText(e.Argument0.AsStringHash().ToDebugString()));
         }
 
         #region ITextDisplayer
@@ -46,7 +46,7 @@ namespace Leaf.Examples
         {
             if (inString.RichText.Length > 0)
             {
-                Text.text = inString.RichText;
+                Text.SetText(inString.RichText);
                 Text.maxVisibleCharacters = 0;
 
                 TextGroup.gameObject.SetActive(true);

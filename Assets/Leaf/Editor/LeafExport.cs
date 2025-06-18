@@ -35,10 +35,10 @@ namespace Leaf.Editor
             where TPackage : LeafNodePackage<TNode>
         {
             public LeafParser<TNode, TPackage> Parser;
-            public IDelimiterRules Delimiters;
+            public DelimiterRules Delimiters;
             public IEnumerable<string> TagsWithText;
 
-            public LeafRule(LeafParser<TNode, TPackage> inParser, IDelimiterRules inDelimiters = null, IEnumerable<string> inTagsWithText = null)
+            public LeafRule(LeafParser<TNode, TPackage> inParser, DelimiterRules inDelimiters = null, IEnumerable<string> inTagsWithText = null)
             {
                 Parser = inParser;
                 Delimiters = inDelimiters ?? TagStringParser.CurlyBraceDelimiters;

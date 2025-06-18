@@ -37,7 +37,7 @@ namespace Leaf.Defaults
 
         protected readonly MonoBehaviour m_RoutineHost;
         protected readonly IMethodCache m_MethodCache;
-        protected readonly TagStringParser m_TagParser;
+        protected TagStringParser m_TagParser;
         
         protected CustomTagParserConfig m_TagParseConfig;
         protected TagStringEventHandler m_TagHandler;
@@ -65,8 +65,7 @@ namespace Leaf.Defaults
 
             m_MethodCache = inCache ?? LeafUtils.CreateMethodCache();
             RuntimeConfig = inConfiguration ?? new LeafRuntimeConfiguration();
-            m_TagParser = new TagStringParser();
-            m_TagParser.Delimiters = TagStringParser.CurlyBraceDelimiters;
+            m_TagParser = new TagStringParser(TagStringParser.CurlyBraceDelimiters);
         }
 
         /// <summary>
