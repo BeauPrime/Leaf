@@ -5,6 +5,7 @@
 {@lou} Just test content.
 {@me} Is it{wait 0.2} interesting?
 {@lou} Probably not.
+$wait 3
 $call Wait(2)
 $SeriesOfLines()
 $call Wait(1)

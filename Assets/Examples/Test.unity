@@ -776,7 +776,7 @@ MonoBehaviour:
     m_SelectedTrigger: Selected
     m_DisabledTrigger: Disabled
   m_Interactable: 1
-  m_TargetGraphic: {fileID: 1127533063}
+  m_TargetGraphic: {fileID: 0}
   m_OnClick:
     m_PersistentCalls:
       m_Calls: []
@@ -792,10 +792,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 30a1eab2b1f3865409a77930639df3e4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Material: {fileID: 0}
-  m_Color: {r: 1, g: 1, b: 1, a: 1}
-  m_RaycastTarget: 1
-  m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
 --- !u!222 &1127533064
 CanvasRenderer:
   m_ObjectHideFlags: 0
@@ -834,9 +830,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   DialogBox: {fileID: 404017135}
-  File: {fileID: -1942890987711236906, guid: bf20e4d767dcdda408d741538d9b6b1b, type: 3}
+  File: {fileID: -1942890987711236906, guid: b0a248111164338479c12839d50b051d, type: 3}
   Actor: {fileID: 615833204}
-  StartNode: Start
+  StartNode: Day1.ArrivalAtTheShed
+  IgnoreLineTables: 0
 --- !u!4 &1215938699
 Transform:
   m_ObjectHideFlags: 0
