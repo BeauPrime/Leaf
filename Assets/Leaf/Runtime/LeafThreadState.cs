@@ -69,7 +69,7 @@ namespace Leaf.Runtime
         /// <summary>
         /// Variant resolver. Overrides the default resolver in the plugin.
         /// </summary>
-        public readonly CustomVariantResolver Resolver;
+        public readonly VariantTableResolver Resolver;
 
         /// <summary>
         /// Tagged string. Temporary state for the current string.
@@ -84,7 +84,7 @@ namespace Leaf.Runtime
             m_Children = new RingBuffer<LeafThreadHandle>();
             m_BasePlugin = inPlugin;
 
-            Resolver = new CustomVariantResolver();
+            Resolver = new VariantTableResolver(2);
             TagString = new TagString();
 
             m_KillAction = Kill;
@@ -106,7 +106,7 @@ namespace Leaf.Runtime
         /// </summary>
         public ILeafActor Actor { get { return m_ActorThis; } }
 
-        IVariantResolver ILeafVariableAccess.Resolver { get { return Resolver; } }
+        VariantTableResolver ILeafVariableAccess.Resolver { get { return Resolver; } }
 
         internal ILeafPlugin Plugin { get { return m_BasePlugin; }}
 

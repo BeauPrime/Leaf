@@ -10,6 +10,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Text;
 using BeauRoutine;
 using BeauUtil;
@@ -633,7 +634,7 @@ namespace Leaf
                     {
                         TableKeyPair keyPair = operand.TableKey;
                         bool bFound = false;
-                        IVariantTable table = inContext.Table;
+                        VariantTable table = inContext.Table;
                         if (table != null && (keyPair.TableId.IsEmpty || keyPair.TableId == table.Name))
                         {
                             bFound = table.TryLookup(keyPair.VariableId, out value);
@@ -641,7 +642,7 @@ namespace Leaf
 
                         if (!bFound)
                         {
-                            bFound = inContext.Resolver.TryGetVariant(inContext, keyPair, out value);
+                            bFound = inContext.Resolver.TryResolve(keyPair, out value);
                         }
                         break;
                     }
@@ -809,6 +810,23 @@ namespace Leaf
 
         #region Data Extraction
 
+        internal struct OpcodeMask
+        {
+            public BitSet256 Mask;
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public void Add(LeafOpcode inOpcode)
+            {
+                Mask.Set((int) inOpcode);
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public readonly bool IsSet(LeafOpcode inOpcode)
+            {
+                return Mask.IsSet((int) inOpcode);
+            }
+        }
+
         private unsafe struct SimulatedStack
         {
             private const int Capacity = 32;
@@ -857,6 +875,8 @@ namespace Leaf
             }
         }
 
+        static private readonly OpcodeMask IndirectOrConditionalMask;
+
         /// <summary>
         /// Retrieves all referenced line codes in the given node.
         /// </summary>
@@ -901,6 +921,22 @@ namespace Leaf
             }
 
             return count;
+        }
+
+        /// <summary>
+        /// Returns if any text is presented in the given node.
+        /// </summary>
+        static public bool HasTextContent(LeafNode inNode)
+        {
+            return HasAnyOpcode(inNode, LeafOpcode.RunLine, LeafOpcode.ShowChoices);
+        }
+
+        /// <summary>
+        /// Returns if there are any indirect or conditional branches in the given node.
+        /// </summary>
+        static public bool HasIndirectOrConditionalBranching(LeafNode inNode)
+        {
+            return HasAnyOpcode(inNode, IndirectOrConditionalMask);
         }
 
         /// <summary>
@@ -1131,6 +1167,134 @@ namespace Leaf
             return count;
         }
 
+        /// <summary>
+        /// Returns if the given opcode is present.
+        /// </summary>
+        static internal bool HasOpcode(LeafNode inNode, LeafOpcode inOpcode)
+        {
+            Assert.NotNull(inNode);
+
+            LeafNode node = inNode;
+            uint pc = inNode.m_InstructionOffset;
+            uint end = pc + node.m_InstructionCount;
+            byte[] stream;
+
+            LeafOpcode op;
+            stream = node.Package().m_Instructions.InstructionStream;
+            while (pc < end)
+            {
+                op = LeafInstruction.ReadOpcode(stream, ref pc);
+                if (op == inOpcode)
+                {
+                    return true;
+                }
+                
+                pc = pc + LeafRuntime.OpSize(op) - 1;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Returns if either of the given opcodes are present.
+        /// </summary>
+        static internal bool HasAnyOpcode(LeafNode inNode, LeafOpcode inOpcode0, LeafOpcode inOpcode1)
+        {
+            Assert.NotNull(inNode);
+
+            LeafNode node = inNode;
+            uint pc = inNode.m_InstructionOffset;
+            uint end = pc + node.m_InstructionCount;
+            byte[] stream;
+
+            LeafOpcode op;
+            stream = node.Package().m_Instructions.InstructionStream;
+            while (pc < end)
+            {
+                op = LeafInstruction.ReadOpcode(stream, ref pc);
+                if (op == inOpcode0 || op == inOpcode1)
+                {
+                    return true;
+                }
+
+                pc = pc + LeafRuntime.OpSize(op) - 1;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Returns if any of the given opcodes are present.
+        /// </summary>
+        static internal bool HasAnyOpcode(LeafNode inNode, in OpcodeMask inMask)
+        {
+            Assert.NotNull(inNode);
+
+            LeafNode node = inNode;
+            uint pc = inNode.m_InstructionOffset;
+            uint end = pc + node.m_InstructionCount;
+            byte[] stream;
+
+            LeafOpcode op;
+            stream = node.Package().m_Instructions.InstructionStream;
+            while (pc < end)
+            {
+                op = LeafInstruction.ReadOpcode(stream, ref pc);
+                if (inMask.IsSet(op))
+                {
+                    return true;
+                }
+
+                pc = pc + LeafRuntime.OpSize(op) - 1;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Returns if any opcodes in the given range are present.
+        /// </summary>
+        static internal bool HasAnyOpcodeInRange(LeafNode inNode, LeafOpcode inOpcodeMin, LeafOpcode inOpcodeMax)
+        {
+            Assert.NotNull(inNode);
+
+            LeafNode node = inNode;
+            uint pc = inNode.m_InstructionOffset;
+            uint end = pc + node.m_InstructionCount;
+            byte[] stream;
+
+            LeafOpcode op;
+            stream = node.Package().m_Instructions.InstructionStream;
+            while (pc < end)
+            {
+                op = LeafInstruction.ReadOpcode(stream, ref pc);
+                if (op >= inOpcodeMin && op <= inOpcodeMax)
+                {
+                    return true;
+                }
+
+                pc = pc + LeafRuntime.OpSize(op) - 1;
+            }
+
+            return false;
+        }
+
         #endregion // Data Extraction
+
+        #region Init
+
+        static LeafUtils()
+        {
+            OpcodeMask mask = default;
+            mask.Add(LeafOpcode.BranchNodeIndirect);
+            mask.Add(LeafOpcode.ForkNodeIndirect);
+            mask.Add(LeafOpcode.ForkNodeIndirectUntracked);
+            mask.Add(LeafOpcode.GotoNodeIndirect);
+            mask.Add(LeafOpcode.JumpIndirect);
+            mask.Add(LeafOpcode.JumpIfFalse);
+            IndirectOrConditionalMask = mask;
+        }
+
+        #endregion // Init
     }
 }

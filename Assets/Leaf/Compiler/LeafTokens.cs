@@ -38,6 +38,7 @@ namespace Leaf.Compiler
         static public readonly StringHash32 Set = "set";
         static public readonly StringHash32 Start = "start";
         static public readonly StringHash32 Stop = "stop";
+        static public readonly StringHash32 Trace = "trace";
         static public readonly StringHash32 Wait = "wait";
         static public readonly StringHash32 While = "while";
         static public readonly StringHash32 Yield = "yield";

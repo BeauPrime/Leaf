@@ -18,7 +18,7 @@ namespace Leaf.Runtime
     {
         public bool CanConvertTo(Type inType)
         {
-            return LeafUtils.ActorType.IsAssignableFrom(inType) || StringParser.CanConvertTo(inType);
+            return StringParser.CanConvertTo(inType) || LeafUtils.ActorType.IsAssignableFrom(inType);
         }
 
         public bool TryConvertTo(StringSlice inData, Type inType, object inContext, out NonBoxedValue outObject)

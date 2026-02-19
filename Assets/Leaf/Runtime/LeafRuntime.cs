@@ -1004,7 +1004,7 @@ namespace Leaf.Runtime
                     }
                 case LeafExpression.OperandType.Read:
                     {
-                        return inContext.Resolver.TryResolve(inContext, inOperandData.TableKey, out outValue);
+                        return inContext.Resolver.TryResolve(inOperandData.TableKey, out outValue);
                     }
                 case LeafExpression.OperandType.Method:
                     {

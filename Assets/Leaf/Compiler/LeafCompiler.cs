@@ -2471,8 +2471,11 @@ namespace Leaf.Compiler
         // Preserves all custom line names as strings
         Preserve_CustomLineNameStrings = 0x200,
 
-        Default_Development = Debug | Validate_NodeRef | Validate_MethodInvocation | Generate_NoOpBoundary,
-        Default_Strict = Debug | Validate_NodeRef | Validate_MethodInvocation | Validate_InstanceMethodStrict | Validate_LoadStore | Generate_NoOpBoundary,
+        // Generates trace commands
+        Generate_TraceCommands = 0x400,
+
+        Default_Development = Debug | Validate_NodeRef | Validate_MethodInvocation | Generate_NoOpBoundary | Generate_TraceCommands,
+        Default_Strict = Debug | Validate_NodeRef | Validate_MethodInvocation | Validate_InstanceMethodStrict | Validate_LoadStore | Generate_NoOpBoundary | Generate_TraceCommands,
         Default_Release = 0
     }
 

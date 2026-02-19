@@ -8,7 +8,7 @@
       "url": "https://package.openupm.com"
     },
     "com.beauprime.beauutil": {
-      "version": "0.10.17",
+      "version": "0.12.0",
       "depth": 0,
       "source": "registry",
       "dependencies": {},

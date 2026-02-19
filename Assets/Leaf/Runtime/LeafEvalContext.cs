@@ -19,10 +19,10 @@ namespace Leaf.Runtime {
     {
         public readonly ILeafPlugin Plugin;
         public readonly LeafThreadState Thread;
-        public readonly IVariantResolver Resolver;
+        public readonly VariantTableResolver Resolver;
         public readonly object ContextObject;
 
-        private LeafEvalContext(ILeafPlugin inPlugin, IVariantResolver inResolver, LeafThreadState inThread, object inContext)
+        private LeafEvalContext(ILeafPlugin inPlugin, VariantTableResolver inResolver, LeafThreadState inThread, object inContext)
         {
             Plugin = inPlugin;
             Resolver = inResolver;
@@ -31,7 +31,7 @@ namespace Leaf.Runtime {
         }
 
         public IMethodCache MethodCache { get { return Plugin?.MethodCache; } }
-        public IVariantTable Table { get { return (ContextObject as IVariantTable) ?? Thread?.Locals; } }
+        public VariantTable Table { get { return (ContextObject as VariantTable) ?? Thread?.Locals; } }
 
         static public LeafEvalContext FromPlugin(ILeafPlugin inPlugin)
         {
@@ -68,7 +68,7 @@ namespace Leaf.Runtime {
             );
         }
 
-        static public LeafEvalContext FromResolver(ILeafPlugin inPlugin, IVariantResolver inResolver, object inContext = null)
+        static public LeafEvalContext FromResolver(ILeafPlugin inPlugin, VariantTableResolver inResolver, object inContext = null)
         {
             return new LeafEvalContext(
                 inPlugin,

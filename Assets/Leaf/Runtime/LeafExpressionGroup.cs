@@ -88,13 +88,25 @@ namespace Leaf.Runtime {
             if (m_Package == null || m_Count == 0)
                 return string.Empty;
 
-            #if DEVELOPMENT
+#if DEVELOPMENT
             StringBuilder builder = new StringBuilder();
             LeafInstruction.DisassembleExpressionGroup(m_Package.m_Instructions, this, builder);
             return builder.Flush();
-            #else
+#else
             return "LeafExpressionGroup cannot be decompiled in non-development builds";
-            #endif // DEVELOPMENT
+#endif // DEVELOPMENT
+        }
+
+        public void ToDebugString(StringBuilder stringBuilder)
+        {
+            if (m_Package == null || m_Count == 0)
+                return;
+
+#if DEVELOPMENT
+            LeafInstruction.DisassembleExpressionGroup(m_Package.m_Instructions, this, stringBuilder);
+#else
+            stringBuilder.AppendLine("LeafExpressionGroup cannot be decompiled in non-development builds");
+#endif // DEVELOPMENT
         }
     }
 }

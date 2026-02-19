@@ -46,7 +46,7 @@ namespace Leaf.Examples
         {
             if (inString.RichText.Length > 0)
             {
-                Text.text = inString.RichText;
+                Text.SetText(inString.RichText);
                 Text.maxVisibleCharacters = 0;
 
                 TextGroup.gameObject.SetActive(true);

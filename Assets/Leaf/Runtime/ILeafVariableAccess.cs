@@ -21,7 +21,7 @@ namespace Leaf.Runtime
 {
     public interface ILeafVariableAccess
     {
-        IVariantResolver Resolver { get; }
+        VariantTableResolver Resolver { get; }
     }
 
     static public class ILeafVariableAccessExtensions
@@ -41,7 +41,7 @@ namespace Leaf.Runtime
             }
 
             Variant variant;
-            inAccess.Resolver.TryResolve(inContext, TableKeyPair.Parse(inIdentifier), out variant);
+            inAccess.Resolver.TryResolve(TableKeyPair.Parse(inIdentifier), out variant);
             return variant;
         }
 
@@ -51,7 +51,7 @@ namespace Leaf.Runtime
         static public Variant GetVariable(this ILeafVariableAccess inAccess, TableKeyPair inIdentifier, object inContext = null)
         {
             Variant variant;
-            inAccess.Resolver.TryResolve(inContext, inIdentifier, out variant);
+            inAccess.Resolver.TryResolve(inIdentifier, out variant);
             return variant;
         }
 
@@ -68,7 +68,7 @@ namespace Leaf.Runtime
                 return false;
             }
 
-            return inAccess.Resolver.TryResolve(inContext, TableKeyPair.Parse(inIdentifier), out outValue);
+            return inAccess.Resolver.TryResolve(TableKeyPair.Parse(inIdentifier), out outValue);
         }
 
         /// <summary>
@@ -76,7 +76,7 @@ namespace Leaf.Runtime
         /// </summary>
         static public bool TryGetVariable(this ILeafVariableAccess inAccess, TableKeyPair inIdentifier, object inContext, out Variant outValue)
         {
-            return inAccess.Resolver.TryResolve(inContext, inIdentifier, out outValue);
+            return inAccess.Resolver.TryResolve(inIdentifier, out outValue);
         }
 
         /// <summary>
@@ -91,7 +91,7 @@ namespace Leaf.Runtime
                 return;
             }
 
-            inAccess.Resolver.TryModify(inContext, key, VariantModifyOperator.Set, inValue);
+            inAccess.Resolver.TryModify(key, VariantModifyOperator.Set, inValue);
         }
 
         /// <summary>
@@ -99,7 +99,7 @@ namespace Leaf.Runtime
         /// </summary>
         static public void SetVariable(this ILeafVariableAccess inAccess, TableKeyPair inIdentifier, Variant inValue, object inContext = null)
         {
-            inAccess.Resolver.TryModify(inContext, inIdentifier, VariantModifyOperator.Set, inValue);
+            inAccess.Resolver.TryModify(inIdentifier, VariantModifyOperator.Set, inValue);
         }
 
         /// <summary>
@@ -114,7 +114,7 @@ namespace Leaf.Runtime
                 return;
             }
 
-            inAccess.Resolver.TryModify(inContext, key, VariantModifyOperator.Add, inAmount);
+            inAccess.Resolver.TryModify(key, VariantModifyOperator.Add, inAmount);
         }
 
         /// <summary>
@@ -122,7 +122,7 @@ namespace Leaf.Runtime
         /// </summary>
         static public void IncrementVariable(this ILeafVariableAccess inAccess, TableKeyPair inIdentifier, Variant inAmount, object inContext = null)
         {
-            inAccess.Resolver.TryModify(inContext, inIdentifier, VariantModifyOperator.Add, inAmount);
+            inAccess.Resolver.TryModify(inIdentifier, VariantModifyOperator.Add, inAmount);
         }
 
         /// <summary>
@@ -139,7 +139,7 @@ namespace Leaf.Runtime
             }
 
             Variant result = default(Variant);
-            inAccess.Resolver.TryResolve(inContext, keyPair, out result);
+            inAccess.Resolver.TryResolve(keyPair, out result);
             if (result == inOldValue)
             {
                 SetVariable(inAccess, keyPair, inNewValue, inContext);
@@ -156,7 +156,7 @@ namespace Leaf.Runtime
         static public bool CompareExchange(this ILeafVariableAccess inAccess, TableKeyPair inIdentifier, Variant inOldValue, Variant inNewValue, object inContext = null)
         {
             Variant result = default(Variant);
-            inAccess.Resolver.TryResolve(inContext, inIdentifier, out result);
+            inAccess.Resolver.TryResolve(inIdentifier, out result);
             if (result == inOldValue)
             {
                 SetVariable(inAccess, inIdentifier, inNewValue, inContext);

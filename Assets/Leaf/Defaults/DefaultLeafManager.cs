@@ -28,7 +28,7 @@ namespace Leaf.Defaults
         /// <summary>
         /// Variable resolver.
         /// </summary>
-        public readonly CustomVariantResolver Resolver;
+        public readonly VariantTableResolver Resolver;
 
         /// <summary>
         /// Runtime configuration.
@@ -37,7 +37,7 @@ namespace Leaf.Defaults
 
         protected readonly MonoBehaviour m_RoutineHost;
         protected readonly IMethodCache m_MethodCache;
-        protected readonly TagStringParser m_TagParser;
+        protected TagStringParser m_TagParser;
         
         protected CustomTagParserConfig m_TagParseConfig;
         protected TagStringEventHandler m_TagHandler;
@@ -45,7 +45,7 @@ namespace Leaf.Defaults
         protected ITextDisplayer m_TextDisplayer;
         protected IChoiceDisplayer m_ChoiceDisplayer;
 
-        public DefaultLeafManager(MonoBehaviour inHost, CustomVariantResolver inResolver, IMethodCache inCache = null, LeafRuntimeConfiguration inConfiguration = null)
+        public DefaultLeafManager(MonoBehaviour inHost, VariantTableResolver inResolver, IMethodCache inCache = null, LeafRuntimeConfiguration inConfiguration = null)
         {
             if (inHost == null)
                 throw new ArgumentNullException("inHost");
@@ -58,15 +58,14 @@ namespace Leaf.Defaults
             }
             else
             {
-                CustomVariantResolver defaultResolver = new CustomVariantResolver();
+                VariantTableResolver defaultResolver = new VariantTableResolver(4);
                 defaultResolver.SetDefaultTable(new VariantTable());
                 Resolver = defaultResolver;
             }
 
             m_MethodCache = inCache ?? LeafUtils.CreateMethodCache();
             RuntimeConfig = inConfiguration ?? new LeafRuntimeConfiguration();
-            m_TagParser = new TagStringParser();
-            m_TagParser.Delimiters = TagStringParser.CurlyBraceDelimiters;
+            m_TagParser = new TagStringParser(TagStringParser.CurlyBraceDelimiters);
         }
 
         /// <summary>
@@ -92,7 +91,7 @@ namespace Leaf.Defaults
         #region Caches
 
         public IMethodCache MethodCache { get { return m_MethodCache; } }
-        IVariantResolver ILeafVariableAccess.Resolver { get { return Resolver; } }
+        VariantTableResolver ILeafVariableAccess.Resolver { get { return Resolver; } }
 
         #endregion // Caches
 
@@ -180,9 +179,9 @@ namespace Leaf.Defaults
                 eventHandler = overrideHandler;
             }
 
-            for(int i = 0; i < eventString.Nodes.Length; i++)
+            for(int i = 0; i < eventString.NodeCount; i++)
             {
-                TagNodeData node = eventString.Nodes[i];
+                TagNodeData node = eventString.GetNode(i);
                 switch(node.Type)
                 {
                     case TagNodeType.Event:

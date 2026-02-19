@@ -309,9 +309,16 @@ namespace Leaf.Runtime
         // Size: 5
         WaitDuration,
 
-        // Interrupts the thread for a specified number of seconds
+        // Interrupts the thread for a number of seconds popped from the stack
         // Stack: pop float duration
         // Size: 1
         WaitDurationIndirect,
+
+        // DEBUGGING
+
+        // Outputs debug text to the console.
+        // Args: uint stringIndex
+        // Size: 5
+        DebugTrace,
     }
 }
