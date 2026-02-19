@@ -1,16 +1,16 @@
 {
   "name": "com.beauprime.leaf",
-  "version": "0.3.18",
+  "version": "0.3.19",
   "displayName": "Leaf",
   "description": "Leaf is a narrative-focused scripting language and runtime for Unity.",
-  "unity": "2019.3",
+  "unity": "2021.1",
   "author": {
     "name": "Autumn Beauchesne",
     "email": "beauchesne@beauprime.com",
     "url": "http://beauprime.com"
   },
   "dependencies": {
-    "com.beauprime.beauutil": "0.11.0",
+    "com.beauprime.beauutil": "0.12.0",
     "com.beauprime.beauroutine": "0.11.1"
   },
   "license": "MIT",
